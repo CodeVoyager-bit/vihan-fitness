@@ -1,7 +1,27 @@
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
+import crypto from "node:crypto";
+import {
+  type AggregateOptions,
+  BSON,
+  type AnyBulkWriteOperation,
+  type BulkWriteOptions,
+  type ClientSession,
+  type Collection,
+  type CountDocumentsOptions,
+  type DeleteOptions,
+  type Document,
+  type Filter,
+  type FindOneAndUpdateOptions,
+  type FindOptions,
+  type IndexDescription,
+  type InsertOneOptions,
+  MongoClient,
+  type ObjectId,
+  type OptionalUnlessRequiredId,
+  type TransactionOptions,
+  type UpdateFilter,
+  type UpdateOptions,
+} from "mongodb";
 
 export type AppMode = "live" | "demo" | "test";
 
@@ -13,245 +33,165 @@ export function appMode(): AppMode {
 
 export const isDemo = () => appMode() === "demo";
 
-// Default lives outside the project folder: the dev server's file watcher opening files inside the
-// project drops SQLite's POSIX locks and can corrupt the WAL when a script writes at the same time.
-export function dbPath() {
-  if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
-  return path.join(os.homedir(), ".vihan-fitness", appMode() === "demo" ? "demo.db" : "vihan.db");
-}
+/** Each mode has its own database, so demo or test data can never mix with live records. */
+export const dbName = () => `vihan_${appMode()}`;
 
+// ───────────────────────────── documents ─────────────────────────────
 // Money is stored in paise (integers). Dates are 'YYYY-MM-DD' / months 'YYYY-MM' in Asia/Kolkata;
-// timestamps are UTC ISO strings.
-const SCHEMA = /* sql */ `
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+// timestamps are UTC ISO strings. Records that appear in URLs, forms or the audit log get a small
+// numeric _id from `counters`; the rest use MongoDB's own ids.
 
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY,
-  phone TEXT NOT NULL UNIQUE,
-  name TEXT NOT NULL,
-  password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin','member')),
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
-  language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en','mr','hi')),
-  created_at TEXT NOT NULL,
-  reviewed_at TEXT,
-  reviewed_by INTEGER REFERENCES users(id),
-  rejected_reason TEXT
-);
+type Lang = "en" | "mr" | "hi";
+type Method = "cash" | "upi" | "other";
 
-CREATE TABLE IF NOT EXISTS members (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id),
-  billing_start_month TEXT NOT NULL,
-  followup_opt_in INTEGER NOT NULL DEFAULT 1,
-  admin_note TEXT
-);
+/** Better Auth owns name/email/createdAt and the password (in `accounts`); the rest is ours. */
+export type UserDoc = {
+  _id: ObjectId;
+  uid: number; // the app's user id
+  name: string;
+  email: string; // hidden, derived from the phone (see accounts.ts)
+  phone: string;
+  role: "admin" | "member";
+  status: "pending" | "approved" | "rejected";
+  language: Lang;
+  createdAt: Date;
+  photo?: string | null; // Cloudinary URL
+  billing_start_month?: string; // set on approval
+  followup_opt_in?: number;
+  admin_note?: string | null;
+  reviewed_at?: string | null;
+  reviewed_by?: number | null;
+  rejected_reason?: string | null;
+};
+export type StatusDoc = { _id: number; member_id: number; status: "active" | "paused" | "left"; effective_month: string; reason: string | null; created_by: number | null; created_at: string };
+export type FeeDoc = { _id: string /* effective month */; amount_paise: number; created_at: string };
+export type ChargeDoc = {
+  _id: number;
+  member_id: number;
+  kind: "monthly" | "opening" | "manual";
+  period_month: string | null;
+  amount_paise: number;
+  due_date: string;
+  description: string | null;
+  created_by: number | null;
+  created_at: string;
+};
+type Reversal = { reversed_at: string | null; reversed_by: number | null; reversal_reason: string | null };
+export type WaiverDoc = { _id: number; charge_id: number; member_id: number; amount_paise: number; reason: string; source: "admin" | "status"; created_by: number | null; created_at: string } & Reversal;
+export type PaymentDoc = {
+  _id: number;
+  member_id: number;
+  amount_paise: number;
+  paid_on: string;
+  method: Method;
+  reference: string | null;
+  note: string | null;
+  idempotency_key: string | null;
+  recorded_by: number;
+  created_at: string;
+} & Reversal;
+export type AllocationDoc = { _id?: ObjectId; payment_id: number; charge_id: number; member_id: number; amount_paise: number; created_at: string };
+export type ClaimDoc = {
+  _id: number;
+  member_id: number;
+  amount_paise: number;
+  paid_on: string;
+  method: Method;
+  reference: string | null;
+  note: string | null;
+  status: "pending" | "confirmed" | "rejected";
+  payment_id: number | null;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  reject_reason: string | null;
+  created_at: string;
+};
+export type AttendanceDoc = { _id?: ObjectId; member_id: number; visit_date: string; recorded_at: string; source: "qr" | "app" | "admin"; created_by: number | null };
+export type GoalDoc = { _id?: ObjectId; member_id: number; month: string; target_visits: number };
+export type OnboardingDoc = { _id?: ObjectId; member_id: number; item: string; done_at: string; done_by: number | null };
+export type HelpDoc = {
+  _id: number;
+  member_id: number;
+  topic: "routine" | "general";
+  message: string | null;
+  status: "open" | "acknowledged" | "resolved";
+  created_at: string;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+  admin_note: string | null;
+};
+export type ChallengeDoc = {
+  _id: number;
+  month: string;
+  template: "target" | "back_on_track" | "buddy";
+  target_visits: number | null;
+  offer_text: string | null;
+  active: number;
+  created_by: number | null;
+  created_at: string;
+};
+export type EntryDoc = { _id?: ObjectId; challenge_id: number; member_id: number; joined_at: string; completed_at: string | null; show_name: number };
+export type ReminderDoc = { _id: number; member_id: number; kind: "fee" | "attendance" | "receipt"; language: string; opened_by: number; opened_at: string };
+export type AuditDoc = { _id: number; at: string; actor_id: number | null; action: string; member_id: number | null; entity: string | null; entity_id: number | null; detail: string | null };
+export type ResetCodeDoc = { _id: number; user_id: number; code_hash: string; expires_at: string; used_at: string | null; attempts: number; created_by: number; created_at: string };
+export type RateLimitDoc = { _id: string; count: number; window_start: number; expires_at: Date };
 
-CREATE TABLE IF NOT EXISTS membership_status (
-  id INTEGER PRIMARY KEY,
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  status TEXT NOT NULL CHECK (status IN ('active','paused','left')),
-  effective_month TEXT NOT NULL,
-  reason TEXT,
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS membership_status_member ON membership_status(member_id, effective_month);
+type Docs = {
+  users: UserDoc;
+  sessions: Document; // Better Auth
+  accounts: Document; // Better Auth
+  verifications: Document; // Better Auth
+  counters: { _id: string; seq: number };
+  locks: { _id: string; n: number };
+  settings: { _id: string; value: string };
+  fee_schedule: FeeDoc;
+  membership_status: StatusDoc;
+  charges: ChargeDoc;
+  waivers: WaiverDoc;
+  payments: PaymentDoc;
+  allocations: AllocationDoc;
+  claims: ClaimDoc;
+  attendance: AttendanceDoc;
+  goals: GoalDoc;
+  onboarding: OnboardingDoc;
+  help_requests: HelpDoc;
+  challenges: ChallengeDoc;
+  challenge_entries: EntryDoc;
+  reminder_opens: ReminderDoc;
+  audit: AuditDoc;
+  reset_codes: ResetCodeDoc;
+  rate_limits: RateLimitDoc;
+};
 
-CREATE TABLE IF NOT EXISTS fee_schedule (
-  effective_month TEXT PRIMARY KEY,
-  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS charges (
-  id INTEGER PRIMARY KEY,
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  kind TEXT NOT NULL CHECK (kind IN ('monthly','opening','manual')),
-  period_month TEXT,
-  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
-  due_date TEXT NOT NULL,
-  description TEXT,
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL,
-  CHECK (kind <> 'monthly' OR period_month IS NOT NULL)
-);
--- The guard against duplicate monthly billing lives in the database, not in app code.
-CREATE UNIQUE INDEX IF NOT EXISTS charges_one_monthly ON charges(member_id, period_month) WHERE kind = 'monthly';
-
-CREATE TABLE IF NOT EXISTS waivers (
-  id INTEGER PRIMARY KEY,
-  charge_id INTEGER NOT NULL REFERENCES charges(id),
-  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
-  reason TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'admin' CHECK (source IN ('admin','status')),
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL,
-  reversed_at TEXT,
-  reversed_by INTEGER REFERENCES users(id),
-  reversal_reason TEXT
-);
-
-CREATE TABLE IF NOT EXISTS payments (
-  id INTEGER PRIMARY KEY,
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
-  paid_on TEXT NOT NULL,
-  method TEXT NOT NULL CHECK (method IN ('cash','upi','other')),
-  reference TEXT,
-  note TEXT,
-  idempotency_key TEXT UNIQUE,
-  recorded_by INTEGER NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL,
-  reversed_at TEXT,
-  reversed_by INTEGER REFERENCES users(id),
-  reversal_reason TEXT
-);
-CREATE INDEX IF NOT EXISTS payments_member ON payments(member_id);
-
-CREATE TABLE IF NOT EXISTS allocations (
-  id INTEGER PRIMARY KEY,
-  payment_id INTEGER NOT NULL REFERENCES payments(id),
-  charge_id INTEGER NOT NULL REFERENCES charges(id),
-  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
-  created_at TEXT NOT NULL,
-  UNIQUE (payment_id, charge_id)
-);
-CREATE INDEX IF NOT EXISTS allocations_charge ON allocations(charge_id);
-
-CREATE TABLE IF NOT EXISTS claims (
-  id INTEGER PRIMARY KEY,
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
-  paid_on TEXT NOT NULL,
-  method TEXT NOT NULL CHECK (method IN ('cash','upi','other')),
-  reference TEXT,
-  note TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','confirmed','rejected')),
-  payment_id INTEGER UNIQUE REFERENCES payments(id),
-  reviewed_by INTEGER REFERENCES users(id),
-  reviewed_at TEXT,
-  reject_reason TEXT,
-  created_at TEXT NOT NULL,
-  CHECK (status <> 'confirmed' OR payment_id IS NOT NULL)
-);
-
-CREATE TABLE IF NOT EXISTS attendance (
-  id INTEGER PRIMARY KEY,
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  visit_date TEXT NOT NULL,
-  recorded_at TEXT NOT NULL,
-  source TEXT NOT NULL CHECK (source IN ('qr','app','admin')),
-  created_by INTEGER REFERENCES users(id),
-  UNIQUE (member_id, visit_date)
-);
-
-CREATE TABLE IF NOT EXISTS goals (
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  month TEXT NOT NULL,
-  target_visits INTEGER NOT NULL CHECK (target_visits BETWEEN 1 AND 31),
-  PRIMARY KEY (member_id, month)
-);
-
-CREATE TABLE IF NOT EXISTS onboarding (
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  item TEXT NOT NULL,
-  done_at TEXT NOT NULL,
-  done_by INTEGER REFERENCES users(id),
-  PRIMARY KEY (member_id, item)
-);
-
-CREATE TABLE IF NOT EXISTS help_requests (
-  id INTEGER PRIMARY KEY,
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  topic TEXT NOT NULL CHECK (topic IN ('routine','general')),
-  message TEXT,
-  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','acknowledged','resolved')),
-  created_at TEXT NOT NULL,
-  acknowledged_at TEXT,
-  resolved_at TEXT,
-  admin_note TEXT
-);
-
-CREATE TABLE IF NOT EXISTS challenges (
-  id INTEGER PRIMARY KEY,
-  month TEXT NOT NULL,
-  template TEXT NOT NULL CHECK (template IN ('target','back_on_track','buddy')),
-  target_visits INTEGER,
-  offer_text TEXT,
-  active INTEGER NOT NULL DEFAULT 1,
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS challenge_entries (
-  challenge_id INTEGER NOT NULL REFERENCES challenges(id),
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  joined_at TEXT NOT NULL,
-  completed_at TEXT,
-  show_name INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (challenge_id, member_id)
-);
-
-CREATE TABLE IF NOT EXISTS reminder_opens (
-  id INTEGER PRIMARY KEY,
-  member_id INTEGER NOT NULL REFERENCES members(user_id),
-  kind TEXT NOT NULL CHECK (kind IN ('fee','attendance','receipt')),
-  language TEXT NOT NULL,
-  opened_by INTEGER NOT NULL REFERENCES users(id),
-  opened_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS audit (
-  id INTEGER PRIMARY KEY,
-  at TEXT NOT NULL,
-  actor_id INTEGER REFERENCES users(id),
-  action TEXT NOT NULL,
-  member_id INTEGER,
-  entity TEXT,
-  entity_id INTEGER,
-  detail TEXT
-);
-CREATE INDEX IF NOT EXISTS audit_member ON audit(member_id, id);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  token_hash TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS reset_codes (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  code_hash TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  used_at TEXT,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  created_by INTEGER NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS rate_limits (
-  key TEXT PRIMARY KEY,
-  count INTEGER NOT NULL,
-  window_start INTEGER NOT NULL
-);
-
--- Derived balances. A reversed payment's allocations stop counting; nothing is deleted.
-CREATE VIEW IF NOT EXISTS charge_balances AS
-SELECT c.*,
-  COALESCE((SELECT SUM(a.amount_paise) FROM allocations a JOIN payments p ON p.id = a.payment_id
-            WHERE a.charge_id = c.id AND p.reversed_at IS NULL), 0) AS paid_paise,
-  COALESCE((SELECT SUM(w.amount_paise) FROM waivers w
-            WHERE w.charge_id = c.id AND w.reversed_at IS NULL), 0) AS waived_paise
-FROM charges c;
-
-CREATE VIEW IF NOT EXISTS payment_balances AS
-SELECT p.*,
-  p.amount_paise - COALESCE((SELECT SUM(a.amount_paise) FROM allocations a WHERE a.payment_id = p.id), 0) AS unallocated_paise
-FROM payments p;
-`;
+// The rules SQLite used to enforce, as indexes. Partial filters use $type, not $exists: an explicit null
+// would otherwise count as a value and collide.
+const INDEXES: { [K in keyof Docs]: IndexDescription[] } = {
+  users: [{ key: { uid: 1 }, unique: true }, { key: { phone: 1 }, unique: true }, { key: { role: 1, status: 1 } }],
+  sessions: [],
+  accounts: [],
+  verifications: [],
+  counters: [],
+  locks: [],
+  settings: [],
+  fee_schedule: [],
+  membership_status: [{ key: { member_id: 1, effective_month: -1 } }],
+  // The guard against duplicate monthly billing lives in the database, not in app code.
+  charges: [{ key: { member_id: 1, period_month: 1 }, unique: true, partialFilterExpression: { kind: "monthly" } }, { key: { member_id: 1 } }],
+  waivers: [{ key: { member_id: 1 } }, { key: { charge_id: 1 } }],
+  payments: [{ key: { idempotency_key: 1 }, unique: true, partialFilterExpression: { idempotency_key: { $type: "string" } } }, { key: { member_id: 1 } }],
+  allocations: [{ key: { payment_id: 1, charge_id: 1 }, unique: true }, { key: { member_id: 1 } }, { key: { charge_id: 1 } }],
+  claims: [{ key: { payment_id: 1 }, unique: true, partialFilterExpression: { payment_id: { $type: "number" } } }, { key: { member_id: 1, status: 1 } }],
+  attendance: [{ key: { member_id: 1, visit_date: 1 }, unique: true }, { key: { visit_date: 1 } }],
+  goals: [{ key: { member_id: 1, month: 1 }, unique: true }],
+  onboarding: [{ key: { member_id: 1, item: 1 }, unique: true }],
+  help_requests: [{ key: { member_id: 1 } }, { key: { status: 1 } }],
+  challenges: [{ key: { month: 1 } }],
+  challenge_entries: [{ key: { challenge_id: 1, member_id: 1 }, unique: true }],
+  reminder_opens: [{ key: { member_id: 1, kind: 1 } }],
+  audit: [{ key: { member_id: 1, _id: -1 } }],
+  reset_codes: [{ key: { user_id: 1 } }],
+  rate_limits: [{ key: { expires_at: 1 }, expireAfterSeconds: 0 }],
+};
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   due_day: "10",
@@ -259,71 +199,201 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   followup_cooldown_days: "7",
 };
 
-function open(): Database.Database {
-  const file = dbPath();
-  if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.pragma("busy_timeout = 5000");
-  db.exec(SCHEMA);
+// ───────────────────────────── connection ─────────────────────────────
 
-  // Refuse to run live code against demo data (or the reverse).
-  const mode = appMode();
-  const stored = db.prepare("SELECT value FROM meta WHERE key = 'mode'").get() as { value: string } | undefined;
-  if (!stored) db.prepare("INSERT INTO meta (key, value) VALUES ('mode', ?)").run(mode);
-  else if (stored.value !== mode)
-    throw new Error(`Database ${file} holds ${stored.value} data but APP_MODE is ${mode}. Refusing to start.`);
+// Inside tx(), every query runs on that transaction's session, wherever it is called from.
+const current = new AsyncLocalStorage<ClientSession>();
+const s = <O extends object>(o?: O) => ({ ...o, session: current.getStore() }) as O & { session?: ClientSession };
 
-  const ins = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
-  for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) ins.run(k, v);
-  return db;
+/** A collection whose operations join the current transaction automatically. `raw` bypasses it. */
+function scoped<T extends Document>(c: Collection<T>) {
+  return {
+    raw: c,
+    find: (f: Filter<T> = {}, o?: FindOptions) => c.find(f, s(o)),
+    findOne: (f: Filter<T>, o?: FindOptions) => c.findOne(f, s(o)),
+    count: (f: Filter<T> = {}, o?: CountDocumentsOptions) => c.countDocuments(f, s(o)),
+    insertOne: (doc: OptionalUnlessRequiredId<T>, o?: InsertOneOptions) => c.insertOne(doc, s(o)),
+    insertMany: async (docs: OptionalUnlessRequiredId<T>[], o?: BulkWriteOptions) => (docs.length ? c.insertMany(docs, s(o)) : null),
+    updateOne: (f: Filter<T>, u: UpdateFilter<T> | Document[], o?: UpdateOptions) => c.updateOne(f, u, s(o)),
+    updateMany: (f: Filter<T>, u: UpdateFilter<T>, o?: UpdateOptions) => c.updateMany(f, u, s(o)),
+    deleteOne: (f: Filter<T>, o?: DeleteOptions) => c.deleteOne(f, s(o)),
+    deleteMany: (f: Filter<T>, o?: DeleteOptions) => c.deleteMany(f, s(o)),
+    findOneAndUpdate: (f: Filter<T>, u: UpdateFilter<T> | Document[], o: FindOneAndUpdateOptions = {}) => c.findOneAndUpdate(f, u, s(o)),
+    aggregate: <R extends Document>(pipeline: Document[], o?: AggregateOptions) => c.aggregate<R>(pipeline, s(o)),
+    bulkWrite: async (ops: AnyBulkWriteOperation<T>[], o?: BulkWriteOptions) => (ops.length ? c.bulkWrite(ops, s(o)) : null),
+  };
 }
 
-const g = globalThis as unknown as { __vfDb?: Database.Database };
+export type DB = { [K in keyof Docs]: ReturnType<typeof scoped<Docs[K]>> };
 
-export function db(): Database.Database {
-  return (g.__vfDb ??= open());
+const g = globalThis as unknown as { __vfClient?: MongoClient; __vfDb?: Promise<DB> };
+
+/** One client per server instance (serverless functions reuse it between requests). */
+export function mongo(): MongoClient {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error("MONGODB_URI is not set (see .env.example).");
+  return (g.__vfClient ??= new MongoClient(uri, { maxPoolSize: 10, maxIdleTimeMS: 60_000 }));
 }
 
-/** Test helper: drop the cached connection so the next db() opens a fresh one. */
-export function resetDbForTests() {
-  g.__vfDb?.close();
-  g.__vfDb = undefined;
+/** The collections, ready to use: indexes and defaults are set up once per server instance. */
+export function db(): Promise<DB> {
+  return (g.__vfDb ??= init().catch((e: unknown) => {
+    g.__vfDb = undefined; // retry on the next request instead of caching the failure
+    throw e;
+  }));
 }
+
+async function init(): Promise<DB> {
+  const raw = mongo().db(dbName());
+  const d = Object.fromEntries(Object.keys(INDEXES).map((name) => [name, scoped(raw.collection(name))])) as DB;
+  // createIndexes is a no-op for indexes that already exist.
+  await Promise.all(Object.entries(INDEXES).filter(([, specs]) => specs.length).map(([name, specs]) => raw.collection(name).createIndexes(specs)));
+  await seedDefaults(d);
+  return d;
+}
+
+async function seedDefaults(d: DB) {
+  // The door QR works from day one.
+  const defaults = { ...DEFAULT_SETTINGS, checkin_key: crypto.randomBytes(9).toString("base64url") };
+  await d.settings.raw.bulkWrite(Object.entries(defaults).map(([k, v]) => ({ updateOne: { filter: { _id: k }, update: { $setOnInsert: { value: v } }, upsert: true } })));
+  await d.locks.raw.updateOne({ _id: "ledger" }, { $setOnInsert: { n: 0 } }, { upsert: true });
+}
+
+/** Scripts call this before exiting so the process doesn't wait on open sockets. */
+export async function closeDb() {
+  await g.__vfClient?.close();
+  g.__vfClient = g.__vfDb = undefined;
+}
+
+/** Test helper: empty every collection (indexes stay) and restore the defaults. */
+export async function resetDbForTests() {
+  const d = await db();
+  await Promise.all(Object.values(d).map((c) => c.raw.deleteMany({})));
+  await seedDefaults(d);
+}
+
+// ───────────────────────────── transactions ─────────────────────────────
+
+const TX: TransactionOptions = { readConcern: { level: "snapshot" }, writeConcern: { w: "majority" }, readPreference: "primary" };
+
+/**
+ * Runs `fn` in one transaction: all or nothing. Every transaction first bumps one shared lock document,
+ * so concurrent writers queue up one at a time (the driver retries the loser) — reads inside a transaction
+ * see a world nobody else is changing, as with SQLite's BEGIN IMMEDIATE. Nested calls join the outer one.
+ * The driver may run `fn` again after a conflict, so it must only touch the database.
+ */
+export async function tx<T>(fn: () => Promise<T>): Promise<T> {
+  if (current.getStore()) return fn();
+  const d = await db();
+  const session = mongo().startSession();
+  try {
+    return await session.withTransaction(
+      () =>
+        current.run(session, async () => {
+          await d.locks.updateOne({ _id: "ledger" }, { $inc: { n: 1 } });
+          return fn();
+        }),
+      TX,
+    );
+  } finally {
+    await session.endSession();
+  }
+}
+
+/**
+ * Independent reads: in parallel normally, one after another inside a transaction (a session can't run
+ * two operations at once).
+ */
+export async function all<T extends readonly (() => Promise<unknown>)[]>(...fns: T): Promise<{ -readonly [K in keyof T]: Awaited<ReturnType<T[K]>> }> {
+  type Out = { -readonly [K in keyof T]: Awaited<ReturnType<T[K]>> };
+  if (!current.getStore()) return (await Promise.all(fns.map((f) => f()))) as Out;
+  const out: unknown[] = [];
+  for (const f of fns) out.push(await f());
+  return out as Out;
+}
+
+/**
+ * Reserves `n` consecutive ids for a collection and returns the first. Runs outside any transaction, so a
+ * retried transaction just leaves a gap.
+ */
+export async function nextId(name: string, n = 1): Promise<number> {
+  const d = await db();
+  const r = await d.counters.raw.findOneAndUpdate({ _id: name }, { $inc: { seq: n } }, { upsert: true, returnDocument: "after" });
+  return r!.seq - n + 1;
+}
+
+// ───────────────────────────── helpers ─────────────────────────────
 
 export const nowIso = () => new Date().toISOString();
 
-export function tx<T>(fn: () => T): T {
-  return db().transaction(fn).immediate();
+/** A month's dates as a range query ('YYYY-MM-01' … 'YYYY-MM-31'), which can use an index. */
+export const inMonth = (month: string) => ({ $gte: `${month}-01`, $lte: `${month}-31` });
+
+export async function setting(key: string): Promise<string | undefined> {
+  return (await (await db()).settings.findOne({ _id: key }))?.value;
 }
 
-export function setting(key: string): string | undefined {
-  return (db().prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+export async function settingInt(key: string, fallback: number): Promise<number> {
+  const v = await setting(key);
+  const n = Number(v);
+  return Number.isFinite(n) && v !== undefined ? n : fallback;
 }
 
-export function settingInt(key: string, fallback: number): number {
-  const n = Number(setting(key));
-  return Number.isFinite(n) && setting(key) !== undefined ? n : fallback;
+export async function setSetting(key: string, value: string) {
+  await (await db()).settings.updateOne({ _id: key }, { $set: { value } }, { upsert: true });
 }
 
-export function setSetting(key: string, value: string) {
-  db().prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+/** Every setting whose key starts with one of `prefixes`, in one query. */
+export async function settingsByPrefix(prefixes: string[]): Promise<Map<string, string>> {
+  const re = new RegExp(`^(${prefixes.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`);
+  const rows = await (await db()).settings.find({ _id: { $regex: re } }).toArray();
+  return new Map(rows.map((r) => [r._id, r.value]));
 }
 
-export function audit(
-  actorId: number | null,
-  action: string,
-  o: { memberId?: number | null; entity?: string; entityId?: number | bigint; detail?: unknown } = {},
-) {
-  db()
-    .prepare("INSERT INTO audit (at, actor_id, action, member_id, entity, entity_id, detail) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(nowIso(), actorId, action, o.memberId ?? null, o.entity ?? null, o.entityId ?? null, o.detail === undefined ? null : JSON.stringify(o.detail));
+/** Writes many settings at once; `null` deletes the key (back to its built-in default). */
+export async function setSettings(values: Record<string, string | null>) {
+  await (await db()).settings.bulkWrite(
+    Object.entries(values).map(([k, v]) => (v === null ? { deleteOne: { filter: { _id: k } } } : { updateOne: { filter: { _id: k }, update: { $set: { value: v } }, upsert: true } })),
+  );
+}
+
+export async function audit(actorId: number | null, action: string, o: { memberId?: number | null; entity?: string; entityId?: number; detail?: unknown } = {}) {
+  const d = await db();
+  await d.audit.insertOne({
+    _id: await nextId("audit"),
+    at: nowIso(),
+    actor_id: actorId,
+    action,
+    member_id: o.memberId ?? null,
+    entity: o.entity ?? null,
+    entity_id: o.entityId ?? null,
+    detail: o.detail === undefined ? null : JSON.stringify(o.detail),
+  });
 }
 
 /** An expected, user-facing failure. `code` is an i18n key under `errors`. */
 export class AppError extends Error {
-  constructor(public code: string, public field?: string) {
+  constructor(
+    public code: string,
+    public field?: string,
+  ) {
     super(code);
+  }
+}
+
+// ───────────────────────────── backups ─────────────────────────────
+
+/** Sign-in sessions, codes and counters of attempts are short-lived; a restore doesn't need them. */
+const NOT_BACKED_UP = new Set(["sessions", "verifications", "rate_limits", "reset_codes", "locks"]);
+
+/**
+ * The whole database as lines of Extended JSON (`{"c": collection, "d": document}`), streamed so a large
+ * backup never sits in memory. `npm run restore -- <file>` loads it into an empty database.
+ */
+export async function* backupLines(): AsyncGenerator<string> {
+  const d = await db();
+  for (const [name, c] of Object.entries(d)) {
+    if (NOT_BACKED_UP.has(name)) continue;
+    for await (const doc of c.raw.find({})) yield BSON.EJSON.stringify({ c: name, d: doc }, { relaxed: false }) + "\n";
   }
 }

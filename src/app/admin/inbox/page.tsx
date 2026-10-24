@@ -7,15 +7,18 @@ import { getT } from "@/lib/i18n/server";
 import { claims, helpRequests, inboxCounts, pendingRegistrations } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Inbox" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("inbox.title") };
+}
 
 export default async function InboxPage() {
   await requireAdmin();
   const { t, lang } = await getT();
-  const c = inboxCounts();
-  const cl = claims("pending", 3);
-  const regs = pendingRegistrations().slice(0, 3);
-  const help = helpRequests(true).filter((h) => h.status === "open").slice(0, 3);
+  const c = await inboxCounts();
+  const cl = await claims("pending", 3);
+  const regs = (await pendingRegistrations()).slice(0, 3);
+  const help = (await helpRequests(true)).filter((h) => h.status === "open").slice(0, 3);
   const groups = [
     { href: "/admin/claims", icon: ReceiptText, title: t("inbox.claims"), n: c.claims, preview: cl.map((x) => `${x.name} · ${money(x.amount_paise, lang)}`) },
     { href: "/admin/approvals", icon: UserPlus, title: t("inbox.approvals"), n: c.approvals, preview: regs.map((r) => r.name) },

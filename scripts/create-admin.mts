@@ -5,8 +5,10 @@ import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({ options: { phone: { type: "string" }, name: { type: "string", default: "Bharat Gite" } } });
-const { db, audit, nowIso } = await import("../src/lib/db");
-const { hashPassword, checkPassword, destroyAllSessions } = await import("../src/lib/accounts");
+const { audit, closeDb, db, dbName } = await import("../src/lib/db");
+console.log(`Database: ${dbName()}`);
+const A = await import("../src/lib/accounts");
+const { auth } = await import("../src/lib/auth");
 const { normalizePhone } = await import("../src/lib/phone");
 
 const phone = normalizePhone(values.phone ?? "");
@@ -17,20 +19,22 @@ if (!password) {
   password = await rl.question("New admin password (min 8 chars): ");
   rl.close();
 }
-checkPassword(password);
+A.checkPassword(password);
 
-const hash = await hashPassword(password);
-const existing = db().prepare("SELECT id, role FROM users WHERE phone = ?").get(phone) as { id: number; role: string } | undefined;
+const d = await db();
+const existing = await d.users.findOne({ phone });
 if (existing && existing.role !== "admin") throw new Error("That phone belongs to a member account. Use a different number for the admin.");
 if (existing) {
-  db().prepare("UPDATE users SET password_hash = ?, name = ? WHERE id = ?").run(hash, values.name, existing.id);
-  destroyAllSessions(existing.id);
-  audit(existing.id, "password.changed", { entity: "user", entityId: existing.id, detail: "reset from command line" });
+  await d.users.updateOne({ _id: existing._id }, { $set: { name: values.name } });
+  await A.setPassword(existing.uid, password);
+  await A.revokeSessions(existing.uid);
+  await audit(existing.uid, "password.changed", { entity: "user", entityId: existing.uid, detail: "reset from command line" });
   console.log(`Admin password reset for ${phone}.`);
 } else {
-  const r = db()
-    .prepare("INSERT INTO users (phone, name, password_hash, role, status, language, created_at) VALUES (?, ?, ?, 'admin', 'approved', 'mr', ?)")
-    .run(phone, values.name, hash, nowIso());
-  audit(Number(r.lastInsertRowid), "admin.created", { entity: "user", entityId: r.lastInsertRowid });
+  const r = await auth().api.signUpEmail({ body: { email: A.authEmail(phone), password, name: values.name, phone, language: "mr" } });
+  await d.users.updateOne({ uid: r.user.uid }, { $set: { role: "admin", status: "approved" } });
+  await A.revokeSessions(r.user.uid); // the session sign-up opened for this script
+  await audit(r.user.uid, "admin.created", { entity: "user", entityId: r.user.uid });
   console.log(`Admin created: ${values.name} (${phone}).`);
 }
+await closeDb();

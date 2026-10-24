@@ -19,9 +19,9 @@ export function ProfileLang() {
         value={lang}
         onChange={(v) => start(async () => (await setLanguageAction(v), router.refresh()))}
         options={[
-          { value: "en", label: "English" },
-          { value: "mr", label: "मराठी" },
-          { value: "hi", label: "हिन्दी" },
+          { value: "en", label: "English", lang: "en" },
+          { value: "mr", label: "मराठी", lang: "mr" },
+          { value: "hi", label: "हिन्दी", lang: "hi" },
         ]}
       />
     </div>

@@ -3,32 +3,40 @@ import Link from "next/link";
 import { ChevronRight, LifeBuoy, LogOut } from "lucide-react";
 import { FollowupPref, ProfileLang } from "./widgets";
 import { logoutAction } from "@/app/actions/common";
+import { myPhotoAction } from "@/app/actions/member";
 import { PasswordForm } from "@/app/admin/more/forms";
+import { PhotoButtons } from "@/components/client";
 import { Avatar, Card, KeyValue, PageHeader, SectionTitle, btn } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { formatPhone } from "@/lib/phone";
+import { photosEnabled } from "@/lib/photos";
 import { profile } from "@/lib/queries";
+import { istDate } from "@/lib/time";
 import { requireMember } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Profile" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("profile.title") };
+}
 
 export default async function ProfilePage() {
   const me = await requireMember();
   const { t, lang } = await getT();
-  const p = profile(me.id)!;
+  const p = (await profile(me.id))!;
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title={t("profile.title")} />
       <Card className="flex items-center gap-4 p-4">
-        <Avatar name={p.name} size="lg" tone="volt" />
+        <Avatar name={p.name} photo={p.photo} size="lg" tone="volt" />
         <div className="min-w-0">
           <p className="truncate text-[20px] font-semibold text-ink-950">{p.name}</p>
           <p className="text-[15px] text-ink-600 tabular">{formatPhone(p.phone)}</p>
+          {photosEnabled() && <PhotoButtons action={myPhotoAction} has={!!p.photo} className="mt-2" />}
         </div>
       </Card>
       <Card className="mt-3 px-4 py-1">
-        <KeyValue items={[[t("profile.memberSince"), fmtDate(p.reviewed_at.slice(0, 10), lang)]]} />
+        <KeyValue items={[[t("profile.memberSince"), fmtDate(istDate(p.reviewed_at), lang)]]} />
       </Card>
 
       <SectionTitle>{t("common.language")}</SectionTitle>

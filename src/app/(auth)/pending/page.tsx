@@ -6,7 +6,10 @@ import { getT } from "@/lib/i18n/server";
 import { requireUser, homeFor } from "@/lib/session";
 import { ButtonLink, btn } from "@/components/ui";
 
-export const metadata: Metadata = { title: "Waiting for approval" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("auth.pendingTab") };
+}
 
 export default async function PendingPage() {
   const u = await requireUser();

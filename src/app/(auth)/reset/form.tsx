@@ -23,7 +23,7 @@ export function ResetForm() {
         <input id="phone" name="phone" defaultValue={kept("phone")} type="tel" inputMode="tel" autoComplete="tel-national" required className={inputCls} />
       </Field>
       <Field label={t("auth.resetCode")} htmlFor="code" hint={t("auth.resetCodeHint")} error={err("code")}>
-        <input id="code" name="code" defaultValue={kept("code")} autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} required maxLength={12} className={`${inputCls} font-display text-xl uppercase tracking-[0.2em]`} aria-describedby="code-hint code-error" />
+        <input id="code" lang="en" name="code" defaultValue={kept("code")} autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} required maxLength={12} className={`${inputCls} font-display text-xl uppercase tracking-[0.2em]`} aria-describedby="code-hint code-error" />
       </Field>
       <Field label={t("auth.newPassword")} htmlFor="password" hint={t("auth.passwordHint")} error={err("password")}>
         <PasswordInput id="password" name="password" autoComplete="new-password" invalid={!!err("password")} />

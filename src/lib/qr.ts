@@ -11,7 +11,7 @@ export async function origin(): Promise<string> {
 }
 
 export async function checkinUrl() {
-  return `${await origin()}/checkin?k=${encodeURIComponent(setting("checkin_key") ?? "")}`;
+  return `${await origin()}/checkin?k=${encodeURIComponent((await setting("checkin_key")) ?? "")}`;
 }
 
 export const registerUrl = async () => `${await origin()}/register`;

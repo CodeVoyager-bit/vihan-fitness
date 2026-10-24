@@ -9,7 +9,10 @@ import { directory, monthState } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Members" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("directory.title") };
+}
 
 export default async function MembersPage({ searchParams }: { searchParams: Promise<{ f?: string; q?: string }> }) {
   await requireAdmin();
@@ -17,11 +20,12 @@ export default async function MembersPage({ searchParams }: { searchParams: Prom
   const { f, q } = await searchParams;
   const today = todayIST();
   const demo = isDemo();
-  const rows: DirItem[] = directory(today).map((r) => {
+  const rows: DirItem[] = (await directory(today)).map((r) => {
     const state = monthState(r, today);
     return {
       id: r.id,
       name: r.name,
+      photo: r.photo,
       phone: formatPhone(r.phone),
       digits: r.phone.slice(3),
       tel: demo ? null : r.phone,

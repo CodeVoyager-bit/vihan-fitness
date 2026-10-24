@@ -1,5 +1,12 @@
 import type { Lang } from "./i18n";
 
+/** Stored on a claim whose payment was reversed; the text after it is the admin's reason. */
+export const REVERSED_PREFIX = "payment_reversed:";
+
+/** Claim reject reasons as shown to people: the reversal marker becomes a translated sentence. */
+export const claimReason = (reason: string, t: (k: "fees.paymentReversed", v: { reason: string }) => string) =>
+  reason.startsWith(REVERSED_PREFIX) ? t("fees.paymentReversed", { reason: reason.slice(REVERSED_PREFIX.length) }) : reason;
+
 // Latin digits in every language keeps amounts and dates consistent across English, Marathi and Hindi.
 export const localeTag = (lang: Lang) => (lang === "en" ? "en-IN" : `${lang}-IN-u-nu-latn`);
 
@@ -45,6 +52,12 @@ export const fmtTime = (iso: string, lang: Lang) =>
 
 export const fmtDateTime = (iso: string, lang: Lang) =>
   new Intl.DateTimeFormat(localeTag(lang), { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(new Date(iso));
+
+export const MAX_PHOTO_BYTES = 4 * 1024 * 1024; // keep under serverActions.bodySizeLimit in next.config.ts
+
+/** Cloudinary resizes on the fly from the URL: "face" crops square around the face, "wide" caps the width. */
+export const photoUrl = (url: string, kind: "face" | "wide") =>
+  url.replace("/upload/", kind === "face" ? "/upload/c_fill,g_face,w_160,h_160,f_auto,q_auto/" : "/upload/c_limit,w_1200,f_auto,q_auto/");
 
 export const initials = (name: string) =>
   name

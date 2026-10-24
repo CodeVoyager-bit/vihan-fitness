@@ -1,32 +1,38 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { authenticate, redeemResetCode, registerMember } from "@/lib/accounts";
+import { authenticate, rateLimit, redeemResetCode, registerMember, signInDemo } from "@/lib/accounts";
 import { type Result, run, str } from "@/lib/action";
-import { AppError, db, isDemo } from "@/lib/db";
-import { clientIp, homeFor, startSession, getUser } from "@/lib/session";
-import { rateLimit } from "@/lib/accounts";
+import { AppError, isDemo } from "@/lib/db";
+import { clientIp, homeFor } from "@/lib/session";
 
 // Only same-site relative paths are allowed as post-login destinations.
-// "//x" and "/\\x" are protocol-relative in browsers, so both are refused.
-const safeNext = (n: string) => (/^\/(?![\/\\])/.test(n) ? n : null);
+// Same-site paths only. Browsers drop tabs/newlines and treat "\\" like "/", so "/\t/evil" or
+// "/\\evil" would become protocol-relative: reject control characters and backslashes, then resolve.
+function safeNext(n: string): string | null {
+  if (!n.startsWith("/") || /[\u0000-\u001f\u007f\\]/.test(n)) return null;
+  try {
+    const u = new URL(n, "http://same.invalid");
+    return u.origin === "http://same.invalid" ? u.pathname + u.search : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function loginAction(_: Result | null, fd: FormData): Promise<Result> {
-  const res = await run(async () => {
-    const id = await authenticate(str(fd, "phone"), String(fd.get("password") ?? ""), await clientIp());
-    await startSession(id);
-  }, fd);
+  const res = await run(async () => authenticate(str(fd, "phone"), String(fd.get("password") ?? ""), await clientIp(), await headers()), fd);
   if (!res.ok) return res;
-  const u = (await getUser())!;
+  // The new session cookie isn't part of this request yet, so go by the user that just signed in.
+  const u = res.data!;
   redirect((u.role === "member" && u.status === "approved" && safeNext(str(fd, "next"))) || homeFor(u));
 }
 
 export async function registerAction(_: Result | null, fd: FormData): Promise<Result> {
   const res = await run(async () => {
     if (String(fd.get("password")) !== String(fd.get("confirm"))) throw new AppError("passwordMismatch", "confirm");
-    if (!rateLimit(`register:${await clientIp()}`, 8, 60 * 60)) throw new AppError("tooManyAttempts");
-    const id = await registerMember({ name: str(fd, "name"), phone: str(fd, "phone"), password: String(fd.get("password") ?? ""), language: str(fd, "language") });
-    await startSession(id);
+    if (!await rateLimit(`register:${await clientIp()}`, 8, 60 * 60)) throw new AppError("tooManyAttempts");
+    await registerMember({ name: str(fd, "name"), phone: str(fd, "phone"), password: String(fd.get("password") ?? ""), language: str(fd, "language") }, await headers());
   }, fd);
   if (!res.ok) return res;
   redirect("/pending");
@@ -44,8 +50,7 @@ export async function demoLoginAction(fd: FormData) {
   if (!isDemo()) throw new AppError("demoOnly");
   const role = str(fd, "as");
   const phone = { admin: "+919000000001", member: "+919000000010", pending: "+919000000090" }[role];
-  const u = phone && (db().prepare("SELECT id FROM users WHERE phone = ?").get(phone) as { id: number } | undefined);
-  if (!u) throw new AppError("demoOnly");
-  await startSession(u.id);
+  if (!phone) throw new AppError("demoOnly");
+  await signInDemo(phone, await headers());
   redirect(role === "admin" ? "/admin" : role === "member" ? "/app" : "/pending");
 }

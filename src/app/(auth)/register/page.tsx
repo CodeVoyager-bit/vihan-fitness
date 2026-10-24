@@ -5,7 +5,10 @@ import { RegisterForm } from "./form";
 import { getT } from "@/lib/i18n/server";
 import { getUser, homeFor } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Join" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("auth.registerTitle") };
+}
 
 export default async function RegisterPage() {
   const u = await getUser();

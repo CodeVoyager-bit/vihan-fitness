@@ -11,8 +11,6 @@ import { btn, cx } from "@/components/ui";
 /** Confirm, then record today's visit. The sheet shows the saved result, never an optimistic one. */
 export function CheckInButton({ dateLabel, done, qrKey, autoOpen, target }: { dateLabel: string; done: boolean; qrKey?: string; autoOpen?: boolean; target: number }) {
   const { t } = useI18n();
-  const [state, action] = useActionState(checkInAction, null);
-  // Keep the sheet mounted after saving so the confirmation stays on screen while the page refreshes.
   return (
     <Sheet
       title={t("member.checkIn")}
@@ -31,32 +29,37 @@ export function CheckInButton({ dateLabel, done, qrKey, autoOpen, target }: { da
         )
       }
     >
-      {(close) =>
-        state?.ok ? (
-          <div className="pb-2 text-center" role="status">
-            <span className="animate-pop mx-auto grid size-24 place-items-center rounded-full bg-volt text-ink-950 shadow-[0_0_0_10px_rgb(200_242_60/0.25)]">
-              {state.data?.created ? <PartyPopper className="size-11" aria-hidden /> : <Check className="size-11" strokeWidth={3} aria-hidden />}
-            </span>
-            <p className="mt-5 font-display text-[34px] font-extrabold leading-[1.05] text-ink-950">{state.data?.created ? t("member.checkInSaved") : t("member.checkedIn")}</p>
-            <p className="mt-2 text-[17px] text-ink-700">{state.data?.created ? t("member.progress", { done: state.data.count, target }) : t("member.checkInAlready")}</p>
-            <button type="button" onClick={close} className={cx(btn({ variant: "dark", size: "lg", block: true }), "mt-6")}>
-              {t("common.done")}
-            </button>
-          </div>
-        ) : (
-          <form action={action} className="space-y-4">
-            {qrKey && <input type="hidden" name="k" value={qrKey} />}
-            <p className="text-[19px] font-semibold text-ink-950">{t("member.checkInConfirm", { date: dateLabel })}</p>
-            <p className="text-[15px] text-ink-600">{t("member.checkInHelp")}</p>
-            <FormError state={state} />
-            <SubmitButton pendingLabel={t("common.saving")}>
-              <MapPin className="size-5" aria-hidden />
-              {t("member.checkIn")}
-            </SubmitButton>
-          </form>
-        )
-      }
+      {(close) => <CheckInBody dateLabel={dateLabel} qrKey={qrKey} target={target} close={close} />}
     </Sheet>
+  );
+}
+
+/** Mounted while the sheet is open: keeps the saved confirmation on screen through the page refresh. */
+function CheckInBody({ dateLabel, qrKey, target, close }: { dateLabel: string; qrKey?: string; target: number; close: () => void }) {
+  const { t } = useI18n();
+  const [state, action] = useActionState(checkInAction, null);
+  return state?.ok ? (
+    <div className="pb-2 text-center" role="status">
+      <span className="animate-pop mx-auto grid size-24 place-items-center rounded-full bg-volt text-ink-950 shadow-[0_0_0_10px_rgb(200_242_60/0.25)]">
+        {state.data?.created ? <PartyPopper className="size-11" aria-hidden /> : <Check className="size-11" strokeWidth={3} aria-hidden />}
+      </span>
+      <p className="mt-5 font-display text-[34px] font-extrabold leading-[1.05] text-ink-950">{state.data?.created ? t("member.checkInSaved") : t("member.checkedIn")}</p>
+      <p className="mt-2 text-[17px] text-ink-700">{state.data?.created ? t("member.progress", { done: state.data.count, target }) : t("member.checkInAlready")}</p>
+      <button type="button" onClick={close} className={cx(btn({ variant: "dark", size: "lg", block: true }), "mt-6")}>
+        {t("common.done")}
+      </button>
+    </div>
+  ) : (
+    <form action={action} className="space-y-4">
+      {qrKey && <input type="hidden" name="k" value={qrKey} />}
+      <p className="text-[19px] font-semibold text-ink-950">{t("member.checkInConfirm", { date: dateLabel })}</p>
+      <p className="text-[15px] text-ink-600">{t("member.checkInHelp")}</p>
+      <FormError state={state} />
+      <SubmitButton pendingLabel={t("common.saving")}>
+        <MapPin className="size-5" aria-hidden />
+        {t("member.checkIn")}
+      </SubmitButton>
+    </form>
   );
 }
 
@@ -65,13 +68,12 @@ export function GoalPicker({ options, current }: { options: number[]; current: n
   const [pending, start] = useTransition();
   const [value, setValue] = useOptimistic(current);
   return (
-    <div role="radiogroup" aria-label={t("attendance.chooseGoal")} className={cx("grid grid-cols-5 gap-2", pending && "opacity-70")}>
+    <div role="group" aria-label={t("attendance.chooseGoal")} className={cx("grid grid-cols-5 gap-2", pending && "opacity-70")}>
       {options.map((n) => (
         <button
           key={n}
           type="button"
-          role="radio"
-          aria-checked={value === n}
+          aria-pressed={value === n}
           onClick={() =>
             start(async () => {
               setValue(n);
@@ -107,7 +109,7 @@ export function HelpQuick() {
             if (r.ok) {
               toast(t("help.sent"));
               router.push("/app/help");
-            } else setError(t(`errors.${r.error}` as "errors.invalidInput"));
+            } else setError(r.error === "somethingWrong" ? t("common.somethingWrong") : t(`errors.${r.error}` as "errors.invalidInput"));
           })
         }
         className="flex min-h-16 w-full items-center gap-3 rounded-[var(--radius-xl)] border border-sand-200 bg-sand-0 px-4 text-left shadow-[var(--shadow-card)] transition hover:border-ink-300 active:scale-[0.99]"

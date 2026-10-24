@@ -33,7 +33,8 @@ function BottomBar({ items, center }: { items: Item[]; center?: Item }) {
             <i.icon className="size-[21px]" strokeWidth={on ? 2.4 : 2} aria-hidden />
             {!!i.badge && (
               <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-bad px-1 text-[11px] font-bold leading-5 text-white ring-2 ring-sand-0">
-                {i.badge}
+                <span aria-hidden>{i.badge}</span>
+                <span className="sr-only">{t("nav.waiting", { n: i.badge })}</span>
               </span>
             )}
           </span>
@@ -87,7 +88,12 @@ function SideBar({ items, primary, footer }: { items: Item[]; primary?: Item; fo
                 >
                   <i.icon className="size-5" aria-hidden />
                   <span className="flex-1">{t(i.label)}</span>
-                  {!!i.badge && <span className="grid min-w-6 place-items-center rounded-full bg-bad px-1.5 text-[12px] font-bold leading-6 text-white">{i.badge}</span>}
+                  {!!i.badge && (
+                    <span className="grid min-w-6 place-items-center rounded-full bg-bad px-1.5 text-[12px] font-bold leading-6 text-white">
+                      <span aria-hidden>{i.badge}</span>
+                      <span className="sr-only">{t("nav.waiting", { n: i.badge })}</span>
+                    </span>
+                  )}
                 </Link>
               </li>
             );

@@ -16,14 +16,14 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
         </div>
         <div className="relative mt-auto hidden lg:block">
           <p className="font-display text-[88px] font-black uppercase leading-[0.85] tracking-tight">
-            Show up.
+            {t("auth.sloganA")}
             <br />
-            <span className="text-volt">Keep going.</span>
+            <span className="text-volt">{t("auth.sloganB")}</span>
           </p>
           <ul className="mt-10 space-y-3 text-[17px] text-sand-0/80">
             <li className="flex items-center gap-3"><CalendarCheck2 className="size-5 text-volt" aria-hidden />{t("nav.visits")} · {t("member.checkIn")}</li>
             <li className="flex items-center gap-3"><IndianRupee className="size-5 text-volt" aria-hidden />{t("nav.fees")} · {t("member.iHavePaid")}</li>
-            <li className="flex items-center gap-3"><Languages className="size-5 text-volt" aria-hidden />English · मराठी · हिन्दी</li>
+            <li className="flex items-center gap-3"><Languages className="size-5 text-volt" aria-hidden /><span lang="en">English</span> · <span lang="mr">मराठी</span> · <span lang="hi">हिन्दी</span></li>
           </ul>
           <p className="mt-12 text-[14px] text-sand-0/50">{t("common.appName")} · {t("common.gymTown")}</p>
         </div>

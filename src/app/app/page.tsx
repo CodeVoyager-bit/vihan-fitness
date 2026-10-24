@@ -4,31 +4,34 @@ import { ArrowRight, CheckCircle2, Hourglass, Trophy, Wallet } from "lucide-reac
 import { ChallengeJoin, CheckInButton, HelpQuick, MyChecklist } from "@/components/member/widgets";
 import { LangSwitcher } from "@/components/client";
 import { Bar, ButtonLink, Card, Notice, ProgressRing, SectionTitle, StatusBadge, cx } from "@/components/ui";
-import { db } from "@/lib/db";
-import { ONBOARDING_ITEMS, activeChallenge, challengeProgress, goalFor, onboardingDone, recognitionWall, visitDates } from "@/lib/engage";
+import { ONBOARDING_ITEMS, activeChallenge, canCheckIn, challengeEntry, challengeProgress, goalFor, onboardingDone, recognitionWall, visitDates } from "@/lib/engage";
 import { fmtDate, fmtMonths, fmtWeekday, money } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { balanceOf, openCharges, statusAt } from "@/lib/ledger";
 import { requireMember } from "@/lib/session";
 import { todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Home" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("nav.home") };
+}
 
 export default async function MemberHome() {
   const me = await requireMember();
   const { t, lang } = await getT();
   const today = todayIST();
   const month = today.slice(0, 7);
-  const visits = visitDates(me.id, month);
-  const goal = goalFor(me.id, month);
-  const status = statusAt(me.id, month) ?? "active";
-  const bal = balanceOf(me.id, today);
-  const open = openCharges(me.id, today);
-  const challenge = activeChallenge(month);
-  const entry = challenge
-    ? (db().prepare("SELECT show_name FROM challenge_entries WHERE challenge_id = ? AND member_id = ?").get(challenge.id, me.id) as { show_name: number } | undefined)
-    : undefined;
-  const done = onboardingDone(me.id);
+  const [visits, goal, st, bal, open, challenge, done] = await Promise.all([
+    visitDates(me.id, month),
+    goalFor(me.id, month),
+    statusAt(me.id, month),
+    balanceOf(me.id, today),
+    openCharges(me.id, today),
+    activeChallenge(month),
+    onboardingDone(me.id),
+  ]);
+  const status = st ?? "active";
+  const entry = challenge ? await challengeEntry(challenge.id, me.id) : null;
   const checkedIn = visits.includes(today);
   const left = Math.max(goal.target - visits.length, 0);
   const encourage = left === 0 ? t("member.goalReached") : visits.length === 0 ? t("member.goalEncourage.start") : left <= 3 ? t("member.goalEncourage.near", { n: left }) : t("member.goalEncourage.mid");
@@ -65,7 +68,7 @@ export default async function MemberHome() {
           </div>
         </div>
         <div className="relative mt-5 flex flex-wrap items-center gap-3">
-          {status === "active" ? (
+          {await canCheckIn(me.id, month) ? (
             <CheckInButton dateLabel={fmtWeekday(today, lang)} done={checkedIn} target={goal.target} />
           ) : (
             <p className="text-[15px] text-sand-0/80">{status === "paused" ? t("member.pausedNote") : t("member.leftNote")}</p>
@@ -141,8 +144,7 @@ export default async function MemberHome() {
               </div>
             </div>
             {entry &&
-              (() => {
-                const p = challengeProgress(challenge, me.id);
+              ((p) => {
                 return p.target ? (
                   <div className="mt-3">
                     <div className="mb-1 flex justify-between text-[13px] font-semibold text-ink-600">
@@ -154,12 +156,11 @@ export default async function MemberHome() {
                 ) : (
                   <p className="mt-3 text-[14px] text-ink-600">{p.complete ? `✓ ${t("challenge.completed")}` : t("challenge.buddyPending")}</p>
                 );
-              })()}
+              })(await challengeProgress(challenge, me.id))}
             <div className="mt-3">
               <ChallengeJoin challengeId={challenge.id} joined={!!entry} showName={!!entry?.show_name} />
             </div>
-            {(() => {
-              const wall = recognitionWall(challenge);
+            {((wall) => {
               return wall.length ? (
                 <div className="mt-4 border-t border-sand-200 pt-3">
                   <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-500">{t("challenge.recognition")}</p>
@@ -172,7 +173,7 @@ export default async function MemberHome() {
                   </ul>
                 </div>
               ) : null;
-            })()}
+            })(await recognitionWall(challenge))}
           </Card>
         </>
       )}

@@ -9,7 +9,7 @@ import { requireAdmin } from "@/lib/session";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   await requireAdmin();
   const { t } = await getT();
-  const c = inboxCounts();
+  const c = await inboxCounts();
   return (
     <div className="min-h-dvh lg:pl-64">
       <AdminNav

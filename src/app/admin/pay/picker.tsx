@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useDeferredValue, useState } from "react";
-import { ChevronRight, Hourglass, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, Hourglass, Search, SearchX } from "lucide-react";
 import { useI18n } from "@/components/i18n-provider";
-import { Avatar, Badge, cx } from "@/components/ui";
+import { Avatar, Badge, EmptyState, cx } from "@/components/ui";
 import { money } from "@/lib/format";
 
-type Row = { id: number; name: string; digits: string; owes: number; overdue: boolean; claims: number };
+type Row = { id: number; name: string; photo: string | null; digits: string; owes: number; overdue: boolean; claims: number };
 
 export function MemberPicker({ rows }: { rows: Row[] }) {
   const { t, lang } = useI18n();
@@ -28,13 +28,19 @@ export function MemberPicker({ rows }: { rows: Row[] }) {
           className="block min-h-14 w-full rounded-[16px] border border-sand-300 bg-white pl-11 pr-4 text-[17px] placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-4 focus:ring-volt/40"
         />
       </label>
-      <ul className="divide-y divide-sand-200 overflow-hidden rounded-[var(--radius-xl)] border border-sand-200 bg-sand-0">
+      {shown.length === 0 && <EmptyState icon={SearchX} title={rows.length ? t("directory.empty") : t("directory.emptyAll")} />}
+      <ul hidden={shown.length === 0} className="divide-y divide-sand-200 overflow-hidden rounded-[var(--radius-xl)] border border-sand-200 bg-sand-0">
         {shown.map((r) => (
           <li key={r.id}>
             <Link href={`/admin/pay?m=${r.id}`} className="flex min-h-16 items-center gap-3 px-4 py-2.5 transition hover:bg-sand-50 active:bg-sand-100">
-              <Avatar name={r.name} size="sm" tone={r.overdue ? "ink" : "sand"} />
+              <Avatar name={r.name} photo={r.photo} size="sm" tone={r.overdue ? "ink" : "sand"} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-semibold text-ink-950">{r.name}</span>
+                {r.overdue && (
+                  <Badge tone="bad" icon={AlertTriangle}>
+                    {t("directory.filters.overdue")}
+                  </Badge>
+                )}
                 {r.claims > 0 && (
                   <Badge tone="info" icon={Hourglass}>
                     {t("directory.claimFlag")}

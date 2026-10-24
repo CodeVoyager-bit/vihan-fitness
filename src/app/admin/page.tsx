@@ -8,36 +8,40 @@ import { Avatar, ButtonLink, Card, Notice, cx } from "@/components/ui";
 import { isDemo, setting } from "@/lib/db";
 import { followUpCandidates } from "@/lib/engage";
 import { fmtDate, fmtMonthName, fmtTime, money, relDay } from "@/lib/format";
-import { getT } from "@/lib/i18n/server";
+import { allT, getT } from "@/lib/i18n/server";
 import { attendanceMessages } from "@/lib/messages";
 import { waNumber } from "@/lib/phone";
 import { activity, claims, dashboard, directory, helpRequests, monthFees, monthState, pendingRegistrations, visitsOn } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Today" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("nav.today") };
+}
 
 export default async function AdminHome() {
   await requireAdmin();
   const { t, lang } = await getT();
+  const ts = await allT();
   const today = todayIST();
   const month = today.slice(0, 7);
   const monthName = fmtMonthName(month, lang);
-  const d = dashboard(today);
-  const fees = monthFees(month);
-  const rows = directory(today).filter((r) => r.status !== "left" || r.outstanding > 0);
-  const follow = followUpCandidates(today).slice(0, 3);
-  const feed = activity(8);
-  const gym = visitsOn(today);
+  const d = await dashboard(today);
+  const fees = await monthFees(month);
+  const rows = (await directory(today)).filter((r) => r.status !== "left" || r.outstanding > 0);
+  const follow = (await followUpCandidates(today)).slice(0, 3);
+  const feed = await activity(8);
+  const gym = await visitsOn(today);
   const rel = (s: string) => relDay(s, today, t);
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Asia/Kolkata" }).format(new Date()));
   const greeting = hour < 12 ? t("admin.greeting.morning") : hour < 17 ? t("admin.greeting.afternoon") : t("admin.greeting.evening");
 
   // The action queue: only things that are actually waiting.
   const queue: { href: string; icon: LucideIcon; n: number; title: string; detail: string; tone: "info" | "bad" }[] = [
-    { href: "/admin/claims", icon: ReceiptText, n: d.claims, title: t("admin.claimsWaiting"), detail: claims("pending", 2).map((c) => `${c.name.split(" ")[0]} · ${money(c.amount_paise, lang)}`).join(", "), tone: "info" as const },
-    { href: "/admin/approvals", icon: UserPlus, n: d.approvals, title: t("admin.approvalsWaiting"), detail: pendingRegistrations().slice(0, 2).map((r) => r.name).join(", "), tone: "info" as const },
-    { href: "/admin/help", icon: LifeBuoy, n: d.help, title: t("admin.helpWaiting"), detail: helpRequests(true).filter((h) => h.status === "open").slice(0, 2).map((h) => h.name.split(" ")[0]).join(", "), tone: "info" as const },
+    { href: "/admin/claims", icon: ReceiptText, n: d.claims, title: t("admin.claimsWaiting"), detail: (await claims("pending", 2)).map((c) => `${c.name.split(" ")[0]} · ${money(c.amount_paise, lang)}`).join(", "), tone: "info" as const },
+    { href: "/admin/approvals", icon: UserPlus, n: d.approvals, title: t("admin.approvalsWaiting"), detail: (await pendingRegistrations()).slice(0, 2).map((r) => r.name).join(", "), tone: "info" as const },
+    { href: "/admin/help", icon: LifeBuoy, n: d.help, title: t("admin.helpWaiting"), detail: (await helpRequests(true)).filter((h) => h.status === "open").slice(0, 2).map((h) => h.name.split(" ")[0]).join(", "), tone: "info" as const },
     { href: "/admin/followup?tab=fees", icon: AlertTriangle, n: d.overdueMembers, title: t("admin.overdueFollowups"), detail: money(d.overdue, lang), tone: "bad" as const },
   ].filter((q) => q.n > 0);
 
@@ -51,7 +55,7 @@ export default async function AdminHome() {
         <LangSwitcher className="lg:hidden" />
       </header>
 
-      {!setting("launch_month") && (
+      {!await setting("launch_month") && (
         <div className="mb-4">
           <Notice tone="warn" action={<ButtonLink href="/admin/more" variant="dark" size="sm">{t("admin.setupAction")}</ButtonLink>}>
             <p className="font-semibold">{t("admin.setupTitle")}</p>
@@ -92,7 +96,7 @@ export default async function AdminHome() {
                   {t("admin.overdue")}
                 </span>
                 <span className={cx("mt-0.5 block font-display text-[26px] font-bold leading-tight", d.overdue > 0 && "text-[#ff8a7a]")}>{money(d.overdue, lang)}</span>
-                <span className="block text-[13px] text-sand-0/60">{t("admin.afterDue", { day: setting("due_day") ?? "10" })}</span>
+                <span className="block text-[13px] text-sand-0/60">{t("admin.afterDue", { day: await setting("due_day") ?? "10" })}</span>
               </Link>
             </div>
           </section>
@@ -110,7 +114,7 @@ export default async function AdminHome() {
             <MemberGrid
               members={rows.map((r) => {
                 const state = monthState(r, today);
-                return { id: r.id, name: r.name, state, stateLabel: t(`monthState.${state}`, { month: "" }).trim() };
+                return { id: r.id, name: r.name, state, stateLabel: t(`monthState.${state}`, { month: fmtMonthName(r.billing_start_month, lang) }) };
               })}
               legend={{ overdue: t("monthState.overdue"), unpaid: t("monthState.unpaid"), part: t("monthState.part"), paid: t("monthState.paid"), none: t("monthState.none") }}
             />
@@ -177,7 +181,7 @@ export default async function AdminHome() {
                 {gym.map((g) => (
                   <li key={g.id}>
                     <Link href={`/admin/members/${g.id}?tab=visits`} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-volt-soft py-1 pl-1 pr-3 text-[14px] font-semibold text-ink-900 transition hover:bg-volt/50">
-                      <Avatar name={g.name} size="sm" tone="volt" />
+                      <Avatar name={g.name} photo={g.photo} size="sm" tone="volt" />
                       {g.name.split(" ")[0]}
                       <span className="font-normal text-ink-600">{fmtTime(g.recorded_at, lang)}</span>
                     </Link>
@@ -202,7 +206,7 @@ export default async function AdminHome() {
               <ul className="divide-y divide-sand-200">
                 {follow.map((f) => (
                   <li key={f.id} className="flex items-center gap-3 px-4 py-3">
-                    <Avatar name={f.name} size="sm" />
+                    <Avatar name={f.name} photo={f.photo} size="sm" />
                     <Link href={`/admin/members/${f.id}?tab=visits`} className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-ink-950">{f.name}</span>
                       <span className="block text-[14px] text-ink-600">{f.last_visit ? t("admin.lastVisit", { when: rel(f.last_visit) }) : t("admin.noVisitYet", { when: rel(f.since) })}</span>
@@ -211,7 +215,7 @@ export default async function AdminHome() {
                       memberId={f.id}
                       name={f.name}
                       waNumber={isDemo() ? null : waNumber(f.phone)}
-                      messages={attendanceMessages(f.name)}
+                      messages={attendanceMessages(ts, f.name)}
                       defaultLang={f.language as "en"}
                       kind="attendance"
                       lastOpenedLabel={f.last_prompt ? t("whatsapp.lastOpened", { when: rel(f.last_prompt) }) : t("whatsapp.neverOpened")}

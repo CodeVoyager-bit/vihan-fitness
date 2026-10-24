@@ -3,11 +3,12 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, useTransition, useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Eye, EyeOff, Loader2, MessageCircle, WifiOff, X, FlaskConical } from "lucide-react";
+import { AlertTriangle, Camera, Check, Eye, EyeOff, Loader2, MessageCircle, WifiOff, X, FlaskConical } from "lucide-react";
 import { useI18n } from "./i18n-provider";
 import { btn, cx, Notice } from "./ui";
 import type { Lang, TKey } from "@/lib/i18n";
 import type { Result } from "@/lib/action";
+import { MAX_PHOTO_BYTES } from "@/lib/format";
 import { logReminderAction, setLanguageAction } from "@/app/actions/common";
 
 // ───────────────────────────── feedback ─────────────────────────────
@@ -250,16 +251,27 @@ export function SheetForm<T>({
   onDone?: (state: Result<T>) => void;
   className?: string;
 }) {
-  const [state, formAction] = useActionState(action, null);
+  // The toast fires here, not in an effect: saving can remove this very item (a confirmed claim, an
+  // approved registration) and unmount the form before any effect runs. A dropped connection becomes
+  // an error message instead of crashing the page.
+  const [state, formAction] = useActionState(async (prev: Result<T> | null, fd: FormData): Promise<Result<T>> => {
+    let r: Result<T>;
+    try {
+      r = await action(prev, fd);
+    } catch {
+      r = { ok: false, error: "network", at: Date.now() };
+    }
+    if (r.ok && successMessage) toast(successMessage);
+    return r;
+  }, null);
   const last = useRef<number | undefined>(undefined);
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state?.ok && state.at !== last.current) {
       last.current = state.at;
-      if (successMessage) toast(successMessage);
       onDone?.(state);
     }
-  }, [state, successMessage, onDone]);
+  }, [state, onDone]);
   // React resets the form after the action; put back what was typed when the save failed.
   useEffect(() => {
     const form = formRef.current;
@@ -276,7 +288,7 @@ export function SheetForm<T>({
     return () => cancelAnimationFrame(id);
   }, [state]);
   return (
-    <form ref={formRef} action={formAction} className={cx("space-y-4", className)}>
+    <form ref={formRef} action={formAction} noValidate className={cx("space-y-4", className)}>
       {children(state)}
     </form>
   );
@@ -398,13 +410,13 @@ export function WhatsAppSheet({
               </div>
             </Notice>
           )}
-          <div role="tablist" aria-label={t("common.language")} className="flex gap-1.5">
+          <div role="group" aria-label={t("common.language")} className="flex gap-1.5">
             {(["en", "mr", "hi"] as Lang[]).map((l) => (
               <button
                 key={l}
-                role="tab"
                 type="button"
-                aria-selected={lang === l}
+                lang={l}
+                aria-pressed={lang === l}
                 onClick={() => setLang(l)}
                 className={cx("min-h-10 rounded-full px-4 text-[14px] font-semibold transition", lang === l ? "bg-ink-900 text-sand-0" : "bg-sand-200/80 text-ink-700")}
               >
@@ -511,4 +523,69 @@ export function ConfirmAction({
 /** Value a field should show after a failed action (React resets forms after every action). */
 export function useKept(state: Result<unknown> | null) {
   return (name: string, fallback: string | number = "") => (state && !state.ok && state.values?.[name] !== undefined ? state.values[name] : String(fallback));
+}
+
+// ───────────────────────────── photos ─────────────────────────────
+
+// Phone photos are 3–8 MB; a 1600px JPEG is a few hundred KB, which matters on mobile data.
+async function shrinkPhoto(file: File): Promise<Blob> {
+  try {
+    const img = await createImageBitmap(file);
+    const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * k);
+    c.height = Math.round(img.height * k);
+    c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise<Blob>((ok, fail) => c.toBlob((b) => (b ? ok(b) : fail()), "image/jpeg", 0.85));
+  } catch {
+    return file; // a format this browser can't draw (e.g. HEIC on desktop): send it as is
+  }
+}
+
+/** Add / change / remove for one photo. `action` gets a form with `photo`, or without it to remove the photo. */
+/** `keepFormat`: send the file as it is when small enough (a logo keeps its transparency instead of becoming a JPEG). */
+export function PhotoButtons({ action, has, className, keepFormat }: { action: (fd: FormData) => Promise<Result>; has: boolean; className?: string; keepFormat?: boolean }) {
+  const { t } = useI18n();
+  const [pending, start] = useTransition();
+  const [state, setState] = useState<Result | null>(null);
+  const send = (photo: Blob | null) =>
+    start(async () => {
+      const fd = new FormData();
+      if (photo) fd.set("photo", photo, "photo.jpg");
+      setState(await action(fd).catch((): Result => ({ ok: false, error: "photoFailed" })));
+    });
+  return (
+    <div className={className}>
+      <div className="flex flex-wrap gap-2">
+        <label className={cx(btn({ variant: "secondary", size: "sm" }), "cursor-pointer focus-within:ring-4 focus-within:ring-volt/40", pending && "pointer-events-none opacity-60")}>
+          {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Camera className="size-4" aria-hidden />}
+          {pending ? t("common.saving") : has ? t("common.photoChange") : t("common.photoAdd")}
+          <input
+            type="file"
+            accept="image/*"
+            disabled={pending}
+            className="sr-only"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ""; // so picking the same file again still fires
+              if (!file) return;
+              const photo = keepFormat && file.size <= MAX_PHOTO_BYTES ? file : await shrinkPhoto(file);
+              if (photo.size > MAX_PHOTO_BYTES) setState({ ok: false, error: "photoInvalid" });
+              else send(photo);
+            }}
+          />
+        </label>
+        {has && (
+          <button type="button" disabled={pending} onClick={() => send(null)} className={btn({ variant: "ghost", size: "sm" })}>
+            {t("common.photoRemove")}
+          </button>
+        )}
+      </div>
+      {state && !state.ok && (
+        <div className="mt-2">
+          <FormError state={state} />
+        </div>
+      )}
+    </div>
+  );
 }

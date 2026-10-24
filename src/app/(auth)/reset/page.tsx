@@ -3,7 +3,10 @@ import Link from "next/link";
 import { ResetForm } from "./form";
 import { getT } from "@/lib/i18n/server";
 
-export const metadata: Metadata = { title: "Reset password" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("auth.resetTitle") };
+}
 
 export default async function ResetPage() {
   const { t } = await getT();

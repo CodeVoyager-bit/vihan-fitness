@@ -1,15 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useMemo, useState } from "react";
-import { ArrowRight, Banknote, Check, CircleEllipsis, Hourglass, Smartphone, SlidersHorizontal, Undo2 } from "lucide-react";
-import { recordPaymentAction } from "@/app/actions/admin";
-import { FormError, Sheet, SubmitButton, WhatsAppSheet } from "@/components/client";
+import { startTransition, useActionState, useMemo, useState } from "react";
+import { ArrowRight, Banknote, Check, CircleEllipsis, Hourglass, Loader2, Smartphone, SlidersHorizontal, Undo2 } from "lucide-react";
+import { type SavedPayment, recordPaymentAction } from "@/app/actions/admin";
+import { FormError, Sheet, WhatsAppSheet } from "@/components/client";
 import { useI18n } from "@/components/i18n-provider";
 import { Avatar, ButtonLink, Card, Field, KeyValue, Notice, Segmented, btn, cx, inputCls } from "@/components/ui";
 import { fmtDate, fmtMonths, money } from "@/lib/format";
+import type { Result } from "@/lib/action";
 import type { Lang } from "@/lib/i18n";
 import { type FutureMonth, type OpenCharge, type PlanLine, planAllocation } from "@/lib/plan";
+import { isDate } from "@/lib/time";
+
+// A dropped connection must not crash the page (a remount would mint a new key and allow a duplicate):
+// report it, keep the form and its key, and let a retry be deduplicated by the server.
+const savePayment = async (prev: Result<SavedPayment> | null, fd: FormData): Promise<Result<SavedPayment>> => {
+  try {
+    return await recordPaymentAction(prev, fd);
+  } catch {
+    return { ok: false, error: "network", at: Date.now() };
+  }
+};
 
 type Labeled<T> = T & { label: string };
 type Method = "cash" | "upi" | "other";
@@ -33,7 +45,7 @@ export function PaymentForm({
   monthFee,
   claimNotice,
 }: {
-  member: { id: number; name: string; wa: string | null; language: Lang };
+  member: { id: number; name: string; photo: string | null; wa: string | null; language: Lang };
   today: string;
   open: Labeled<OpenCharge>[];
   future: Labeled<FutureMonth>[];
@@ -43,7 +55,7 @@ export function PaymentForm({
   claimNotice: string | null;
 }) {
   const { t, lang } = useI18n();
-  const [state, action] = useActionState(recordPaymentAction, null);
+  const [state, action, pending] = useActionState(savePayment, null);
   // One key per form: a double tap or a retry on a flaky connection can't save the payment twice.
   // Created when the review sheet first opens and then reused, so retries carry the same key.
   const [idemKey, setIdemKey] = useState("");
@@ -67,11 +79,31 @@ export function PaymentForm({
     : auto.lines;
   const allocated = lines.reduce((s, l) => s + l.amount, 0);
   const extra = valid ? amt - allocated : 0;
-  const splitBad = custom && (rows.some((r) => toPaise(split[r.key] || "0") > r.max || Number.isNaN(toPaise(split[r.key] || "0"))) || extra < 0);
-  const toOpen = lines.filter((l) => l.chargeId).reduce((s, l) => s + l.amount, 0);
+  // Upcoming months are paid whole (server rule), and nothing may exceed what a line can take.
+  const splitBad =
+    custom &&
+    (rows.some((r) => {
+      const p = toPaise(split[r.key] || "0");
+      return Number.isNaN(p) || p > r.max || (!r.chargeId && p > 0 && p !== r.max);
+    }) ||
+      extra < 0);
+  // Like the server: money not split by hand settles the oldest unpaid charges, the rest is credit.
+  let spare = Math.max(extra, 0);
+  for (const r of rows.filter((x) => x.chargeId)) {
+    const room = r.max - (lines.find((l) => l.chargeId === r.chargeId)?.amount ?? 0);
+    spare -= Math.min(room, spare);
+  }
+  const toOpen = Math.min(outstanding, lines.filter((l) => l.chargeId).reduce((s, l) => s + l.amount, 0) + (Math.max(extra, 0) - spare));
   const balanceAfter = outstanding - toOpen;
-  const creditAfter = credit + Math.max(extra, 0);
-  const canReview = valid && paidOn <= today && !splitBad;
+  const creditAfter = credit + spare;
+  const dateOk = isDate(paidOn) && paidOn <= today && paidOn >= "2020-01-01";
+  const canReview = valid && dateOk && !splitBad;
+  const submit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // calling the action ourselves skips React's automatic form reset after it
+    const fd = new FormData(e.currentTarget);
+    startTransition(() => action(fd));
+  };
+  const serverDateError = state && !state.ok && state.field === "paidOn";
 
   const startCustom = () => {
     setSplit(Object.fromEntries(auto.lines.map((l) => [keyOf(l), toRupees(l.amount)])));
@@ -89,14 +121,14 @@ export function PaymentForm({
   ).filter((c, i, all) => all.findIndex((x) => x.value === c.value) === i);
 
   return (
-    <form action={action} className="space-y-4" noValidate>
+    <form onSubmit={submit} className="space-y-4" noValidate>
       <input type="hidden" name="memberId" value={member.id} />
       <input type="hidden" name="key" value={idemKey} />
       <input type="hidden" name="split" value={custom ? "custom" : "auto"} />
       <input type="hidden" name="lines" value={JSON.stringify(lines)} />
 
       <Card className="flex items-center gap-3 p-3.5">
-        <Avatar name={member.name} />
+        <Avatar name={member.name} photo={member.photo} />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-500">{t("pay.recordingFor")}</p>
           <p className="truncate text-[17px] font-semibold text-ink-950">{member.name}</p>
@@ -148,8 +180,8 @@ export function PaymentForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("pay.paidOn")} htmlFor="paidOn" error={paidOn > today ? t("errors.dateInvalid") : null}>
-          <input id="paidOn" name="paidOn" type="date" max={today} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className={inputCls} required />
+        <Field label={t("pay.paidOn")} htmlFor="paidOn" error={(paidOn && !dateOk) || serverDateError ? t("errors.dateInvalid") : null}>
+          <input id="paidOn" name="paidOn" type="date" min="2020-01-01" max={today} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className={inputCls} required />
         </Field>
         <Segmented
           name="method"
@@ -231,8 +263,8 @@ export function PaymentForm({
                 </span>
               </label>
             ))}
-            <p className={cx("pt-1 text-[14px] font-semibold", extra < 0 ? "text-bad" : "text-ink-700")}>
-              {extra < 0 ? t("errors.allocationOverPayment") : extra > 0 ? `${t("pay.credit")}: ${money(extra, lang)}` : ""}
+            <p className={cx("pt-1 text-[14px] font-semibold", extra < 0 || splitBad ? "text-bad" : "text-ink-700")}>
+              {extra < 0 ? t("errors.allocationOverPayment") : splitBad ? t("errors.allocationWholeMonths") : spare > 0 ? `${t("pay.credit")}: ${money(spare, lang)}` : ""}
             </p>
           </div>
         )}
@@ -263,20 +295,22 @@ export function PaymentForm({
             <div className="rounded-[18px] bg-ink-950 p-4 text-sand-0">
               <p className="font-display text-[44px] font-extrabold leading-none tabular text-volt">{valid ? money(amt, lang) : ""}</p>
               <p className="mt-1 text-[15px]">
-                {member.name} · {t(`methods.${method}`)} · {fmtDate(paidOn, lang)}
+                {member.name} · {t(`methods.${method}`)} · {dateOk ? fmtDate(paidOn, lang) : ""}
               </p>
             </div>
             <KeyValue
               items={[
                 ...lines.map((l) => [rows.find((r) => r.key === keyOf(l))?.label ?? "", money(l.amount, lang)] as [string, string]),
-                ...(extra > 0 ? ([[t("pay.credit"), money(extra, lang)]] as [string, string][]) : []),
+                ...(spare > 0 ? ([[t("pay.credit"), money(spare, lang)]] as [string, string][]) : []),
                 [t("pay.balanceAfter"), money(Math.max(balanceAfter, 0), lang)],
               ]}
             />
-            <SubmitButton pendingLabel={t("pay.saving")}>
-              <Check className="size-5" strokeWidth={3} aria-hidden />
-              {t("pay.save")}
-            </SubmitButton>
+            {/* Errors are shown here too: the page behind the sheet is covered. */}
+            <FormError state={state} />
+            <button type="submit" disabled={pending} aria-busy={pending} className={btn({ variant: "primary", size: "lg", block: true })}>
+              {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Check className="size-5" strokeWidth={3} aria-hidden />}
+              {pending ? t("pay.saving") : t("pay.save")}
+            </button>
           </div>
         </Sheet>
       </div>
@@ -284,7 +318,7 @@ export function PaymentForm({
   );
 }
 
-function Saved({ data, member }: { data: NonNullable<Extract<Awaited<ReturnType<typeof recordPaymentAction>>, { ok: true }>["data"]>; member: { id: number; name: string; wa: string | null; language: Lang } }) {
+function Saved({ data, member }: { data: SavedPayment; member: { id: number; name: string; photo: string | null; wa: string | null; language: Lang } }) {
   const { t, lang } = useI18n();
   return (
     <div className="animate-rise pt-2 text-center" role="status" aria-live="polite">

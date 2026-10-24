@@ -9,7 +9,10 @@ import { getT } from "@/lib/i18n/server";
 import { getUser, homeFor } from "@/lib/session";
 import { btn } from "@/components/ui";
 
-export const metadata: Metadata = { title: "Log in" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("auth.login") };
+}
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; reset?: string }> }) {
   const u = await getUser();

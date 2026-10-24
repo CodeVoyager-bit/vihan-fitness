@@ -40,4 +40,8 @@ export function dueDateFor(month: string, dueDay: number): string {
 }
 
 export const isMonth = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
-export const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
+// Rejects dates that don't exist (e.g. 2026-02-30), which Date.parse would silently roll over.
+export const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
+
+/** Asia/Kolkata calendar date of a UTC timestamp. */
+export const istDate = (iso: string) => todayIST(new Date(iso));

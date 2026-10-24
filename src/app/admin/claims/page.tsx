@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ReceiptText } from "lucide-react";
 import { ConfirmClaim, LinkClaim, RejectClaim } from "./actions-ui";
 import { Avatar, Card, EmptyState, PageHeader, SectionTitle, StatusBadge } from "@/components/ui";
-import { fmtDate, fmtMonth, money, relDay } from "@/lib/format";
+import { claimReason, fmtDate, fmtMonth, money, relDay } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { balanceOf, linkablePayments, openCharges, unbilledMonths } from "@/lib/ledger";
 import { planAllocation } from "@/lib/plan";
@@ -11,15 +11,23 @@ import { claims } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { addDays, todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Payment claims" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("claims.title") };
+}
 
 export default async function ClaimsPage() {
   await requireAdmin();
   const { t, lang } = await getT();
   const today = todayIST();
-  const pending = claims("pending");
-  const reviewed = claims("reviewed", 15);
-  const label = (m: string | null) => (m ? fmtMonth(m, lang) : t("memberDetail.opening"));
+  const pending = await claims("pending");
+  const reviewed = await claims("reviewed", 15);
+  const label = (m: string | null, chargeId?: number) => {
+    if (m) return fmtMonth(m, lang);
+    const c = chargeId ? openById.get(chargeId) : undefined;
+    return c?.kind === "manual" ? c.description || t("memberDetail.manual") : t("memberDetail.opening");
+  };
+  const openById = new Map<number, { kind?: string; description?: string | null }>();
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -28,15 +36,17 @@ export default async function ClaimsPage() {
         <EmptyState icon={ReceiptText} title={t("claims.empty")} />
       ) : (
         <ul className="space-y-3">
-          {pending.map((c) => {
-            const bal = balanceOf(c.member_id, today);
-            const plan = planAllocation(c.amount_paise, openCharges(c.member_id, today), unbilledMonths(c.member_id, 6));
+          {await Promise.all(pending.map(async (c) => {
+            const bal = await balanceOf(c.member_id, today);
+            const open = await openCharges(c.member_id, today);
+            for (const o of open) openById.set(o.id, o);
+            const plan = planAllocation(c.amount_paise, open, await unbilledMonths(c.member_id));
             // Possible duplicates: recorded payments not yet tied to a claim, within a week of the claimed date.
-            const matches = linkablePayments(c.member_id).filter((p) => p.paid_on >= addDays(c.paid_on, -7) && p.paid_on <= addDays(c.paid_on, 7));
+            const matches = (await linkablePayments(c.member_id)).filter((p) => p.amount_paise === c.amount_paise && p.paid_on >= addDays(c.paid_on, -7) && p.paid_on <= addDays(c.paid_on, 7));
             return (
               <Card as="li" key={c.id} className="p-4">
                 <div className="flex items-start gap-3">
-                  <Avatar name={c.name} size="sm" />
+                  <Avatar name={c.name} photo={c.photo} size="sm" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <Link href={`/admin/members/${c.member_id}`} className="truncate font-semibold text-ink-950 underline-offset-2 hover:underline">
@@ -76,7 +86,7 @@ export default async function ClaimsPage() {
                     claimId={c.id}
                     title={t("claims.confirmTitle", { amount: money(c.amount_paise, lang), name: c.name.split(" ")[0] })}
                     lines={[
-                      ...plan.lines.map((l) => [label(l.month), money(l.amount, lang)] as [string, string]),
+                      ...plan.lines.map((l) => [label(l.month, l.chargeId), money(l.amount, lang)] as [string, string]),
                       ...(plan.credit ? ([[t("pay.credit"), money(plan.credit, lang)]] as [string, string][]) : []),
                     ]}
                     balanceAfter={money(Math.max(bal.outstanding - plan.lines.filter((l) => l.chargeId).reduce((s, l) => s + l.amount, 0), 0), lang)}
@@ -84,7 +94,7 @@ export default async function ClaimsPage() {
                 </div>
               </Card>
             );
-          })}
+          }))}
         </ul>
       )}
 
@@ -99,7 +109,7 @@ export default async function ClaimsPage() {
                   <span className="block text-[14px] text-ink-600 tabular">
                     {money(c.amount_paise, lang)} · {t(`methods.${c.method}`)} · {fmtDate(c.paid_on, lang)}
                   </span>
-                  {c.reject_reason && <span className="mt-0.5 block text-[14px] text-bad">“{c.reject_reason}”</span>}
+                  {c.reject_reason && <span className="mt-0.5 block text-[14px] text-bad">“{claimReason(c.reject_reason, t)}”</span>}
                 </span>
                 <StatusBadge status={c.status} label={t(`claimStatus.${c.status}`)} />
               </Link>

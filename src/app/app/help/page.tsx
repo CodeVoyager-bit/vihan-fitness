@@ -4,14 +4,18 @@ import { Card, PageHeader, SectionTitle, StatusBadge } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { helpFor } from "@/lib/queries";
+import { istDate } from "@/lib/time";
 import { requireMember } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Ask Bharat sir" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("help.memberTitle") };
+}
 
 export default async function HelpPage() {
   const me = await requireMember();
   const { t, lang } = await getT();
-  const mine = helpFor(me.id);
+  const mine = await helpFor(me.id);
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title={t("help.memberTitle")} sub={t("help.memberSub")} back={{ href: "/app", label: t("nav.home") }} />
@@ -28,7 +32,7 @@ export default async function HelpPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-ink-950">{t(`helpTopic.${h.topic}`)}</p>
-                  <p className="text-[13px] text-ink-500">{fmtDate(h.created_at.slice(0, 10), lang)}</p>
+                  <p className="text-[13px] text-ink-500">{fmtDate(istDate(h.created_at), lang)}</p>
                 </div>
                 <StatusBadge status={h.status} label={t(`helpStatus.${h.status}`)} />
               </div>

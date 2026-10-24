@@ -1,6 +1,6 @@
 // Pure allocation planning, shared by the payment form (live preview) and the server (authoritative).
 
-export type OpenCharge = { id: number; month: string | null; outstanding: number; overdue: boolean };
+export type OpenCharge = { id: number; month: string | null; outstanding: number; overdue: boolean; kind?: "monthly" | "opening" | "manual"; description?: string | null };
 export type FutureMonth = { month: string; fee: number };
 /** A line either pays an existing charge or a not-yet-billed month (the server creates that charge). */
 export type PlanLine = { chargeId?: number; month: string | null; amount: number };
@@ -37,8 +37,10 @@ export function validatePlan(amount: number, lines: PlanLine[], open: OpenCharge
       const c = open.find((o) => o.id === l.chargeId);
       if (!c || l.amount > c.outstanding) return "allocationTooMuch";
     } else {
+      // Upcoming months are paid whole; a partial advance stays as credit instead of creating debt early.
       const f = future.find((o) => o.month === l.month);
       if (!f || l.amount > f.fee) return "allocationTooMuch";
+      if (l.amount !== f.fee) return "allocationWholeMonths";
     }
     total += l.amount;
   }

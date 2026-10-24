@@ -1,23 +1,26 @@
 import type { Metadata } from "next";
 import { CheckCircle2, Info, Wallet } from "lucide-react";
 import { ButtonLink, Card, EmptyState, PageHeader, SectionTitle, StatusBadge, cx } from "@/components/ui";
-import { fmtDate, fmtMonth, fmtMonths, money } from "@/lib/format";
+import { claimReason, fmtDate, fmtMonth, fmtMonths, money } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { balanceOf, chargesFor } from "@/lib/ledger";
 import { claimsFor, paymentsFor } from "@/lib/queries";
 import { requireMember } from "@/lib/session";
 import { todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Fees" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("fees.title") };
+}
 
 export default async function FeesPage() {
   const me = await requireMember();
   const { t, lang } = await getT();
   const today = todayIST();
-  const bal = balanceOf(me.id, today);
-  const charges = chargesFor(me.id);
-  const payments = paymentsFor(me.id).filter((p) => !p.reversed_at);
-  const claims = claimsFor(me.id);
+  const bal = await balanceOf(me.id, today);
+  const charges = await chargesFor(me.id);
+  const payments = (await paymentsFor(me.id)).filter((p) => !p.reversed_at);
+  const claims = await claimsFor(me.id);
 
   return (
     <>
@@ -59,7 +62,7 @@ export default async function FeesPage() {
                   </p>
                   <StatusBadge status={c.status} label={t(`claimStatus.${c.status}`)} />
                 </div>
-                {c.reject_reason && <p className="mt-1 text-[14px] text-bad">{t("fees.rejectedReason", { reason: c.reject_reason })}</p>}
+                {c.reject_reason && <p className="mt-1 text-[14px] text-bad">{t("fees.rejectedReason", { reason: claimReason(c.reject_reason, t) })}</p>}
               </li>
             ))}
           </Card>
@@ -78,7 +81,7 @@ export default async function FeesPage() {
             return (
               <li key={c.id} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div>
-                  <p className="font-semibold text-ink-950">{c.kind === "monthly" ? fmtMonth(c.period_month!, lang, "long") : t("memberDetail.opening")}</p>
+                  <p className="font-semibold text-ink-950">{c.kind === "monthly" ? fmtMonth(c.period_month!, lang, "long") : c.kind === "opening" ? t("memberDetail.opening") : c.description || t("memberDetail.manual")}</p>
                   <StatusBadge status={state} label={t(`monthState.${state}`, { month: "" })} className="mt-1" />
                 </div>
                 <div className="text-right">

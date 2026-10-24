@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { RefreshCw } from "lucide-react";
-import { billingSettingsAction, feeAction, followupSettingsAction, publicInfoAction, runBillingAction } from "@/app/actions/admin";
+import { billingSettingsAction, feeAction, followupSettingsAction, runBillingAction } from "@/app/actions/admin";
 import { changePasswordAction } from "@/app/actions/member";
 import { FormError, PasswordInput, SheetForm, SubmitButton, useFieldError } from "@/components/client";
 import { useI18n } from "@/components/i18n-provider";
@@ -47,6 +47,7 @@ function FeeFields({ state, nextMonth }: { state: Parameters<typeof useFieldErro
   const err = useFieldError(state);
   return (
     <>
+      <FormError state={state} fields={["fee", "effectiveMonth"]} />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={t("settings.fee")} htmlFor="fee" error={err("fee")}>
           <input id="fee" name="fee" inputMode="decimal" placeholder="500" required className={inputCls} />
@@ -92,37 +93,6 @@ export function FollowupForm({ days, cooldown }: { days: number; cooldown: numbe
             <Field label={t("settings.cooldownDays")} htmlFor="cooldownDays">
               <input id="cooldownDays" name="cooldownDays" type="number" min={1} max={60} defaultValue={cooldown} inputMode="numeric" className={inputCls} />
             </Field>
-          </div>
-          <SubmitButton variant="dark" size="md" block={false} pendingLabel={t("common.saving")}>
-            {t("common.save")}
-          </SubmitButton>
-        </>
-      )}
-    </SheetForm>
-  );
-}
-
-const LONG = new Set(["about", "trainer", "joining", "address"]);
-
-export function PublicForm({ values }: { values: Record<string, string> }) {
-  const { t } = useI18n();
-  return (
-    <SheetForm action={publicInfoAction} successMessage={t("settings.saved")}>
-      {(state) => (
-        <>
-          <FormError state={state} />
-          <div className="grid gap-4 sm:grid-cols-2">
-            {Object.keys(values).map((k) => (
-              <div key={k} className={LONG.has(k) ? "sm:col-span-2" : ""}>
-                <Field label={t(`settings.pub.${k}` as TKey)} htmlFor={`pub-${k}`} optional optionalLabel={t("common.optional")}>
-                  {LONG.has(k) ? (
-                    <textarea id={`pub-${k}`} name={k} defaultValue={values[k]} rows={3} maxLength={1200} className={cx(inputCls, "min-h-24")} />
-                  ) : (
-                    <input id={`pub-${k}`} name={k} defaultValue={values[k]} maxLength={300} inputMode={k === "phone" || k === "whatsapp" ? "tel" : k === "since" ? "numeric" : undefined} className={inputCls} />
-                  )}
-                </Field>
-              </div>
-            ))}
           </div>
           <SubmitButton variant="dark" size="md" block={false} pendingLabel={t("common.saving")}>
             {t("common.save")}

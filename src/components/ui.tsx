@@ -15,7 +15,7 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-import { initials } from "@/lib/format";
+import { initials, photoUrl } from "@/lib/format";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -145,15 +145,17 @@ export function Notice({ tone = "info", icon, children, action }: { tone?: Tone;
   );
 }
 
-export function Avatar({ name, size = "md", tone = "sand" }: { name: string; size?: "sm" | "md" | "lg"; tone?: "sand" | "volt" | "ink" }) {
+export function Avatar({ name, photo, size = "md", tone = "sand" }: { name: string; photo?: string | null; size?: "sm" | "md" | "lg"; tone?: "sand" | "volt" | "ink" }) {
+  const sizeCls = cx(size === "sm" && "size-9 text-[15px]", size === "md" && "size-11 text-lg", size === "lg" && "size-16 text-2xl");
+  if (photo)
+    // eslint-disable-next-line @next/next/no-img-element -- Cloudinary already resizes and converts via the URL
+    return <img src={photoUrl(photo, "face")} alt="" aria-hidden loading="lazy" className={cx("shrink-0 rounded-full bg-sand-200 object-cover", sizeCls)} />;
   return (
     <span
       aria-hidden
       className={cx(
         "grid shrink-0 place-items-center rounded-full font-display font-bold uppercase",
-        size === "sm" && "size-9 text-[15px]",
-        size === "md" && "size-11 text-lg",
-        size === "lg" && "size-16 text-2xl",
+        sizeCls,
         tone === "sand" && "bg-sand-200 text-ink-800",
         tone === "volt" && "bg-volt text-ink-950",
         tone === "ink" && "bg-ink-900 text-volt",
@@ -281,7 +283,7 @@ export function ProgressRing({ value, max, size = 132, stroke = 12, label, child
 export function Bar({ value, max, label }: { value: number; max: number; label: string }) {
   const pct = Math.min(100, Math.round((value / Math.max(max, 1)) * 100));
   return (
-    <div role="progressbar" aria-label={label} aria-valuenow={value} aria-valuemin={0} aria-valuemax={max} className="h-2.5 overflow-hidden rounded-full bg-sand-200">
+    <div role="progressbar" aria-label={label} aria-valuenow={Math.min(value, max)} aria-valuemin={0} aria-valuemax={max} className="h-2.5 overflow-hidden rounded-full bg-sand-200">
       <div className="h-full rounded-full bg-volt transition-[width] duration-700 ease-out" style={{ width: `${pct}%` }} />
     </div>
   );
@@ -333,7 +335,7 @@ export function Field({
 }
 
 /** Radio group styled as a segmented control. Native radios = keyboard + screen reader support for free. */
-export function Segmented({ name, options, defaultValue, legend, value, onChange }: { name: string; options: { value: string; label: string; icon?: LucideIcon }[]; defaultValue?: string; legend: string; value?: string; onChange?: (v: string) => void }) {
+export function Segmented({ name, options, defaultValue, legend, value, onChange }: { name: string; options: { value: string; label: string; icon?: LucideIcon; lang?: string }[]; defaultValue?: string; legend: string; value?: string; onChange?: (v: string) => void }) {
   return (
     <fieldset>
       <legend className="mb-1.5 text-[15px] font-semibold text-ink-900">{legend}</legend>
@@ -347,7 +349,7 @@ export function Segmented({ name, options, defaultValue, legend, value, onChange
               className="peer sr-only"
               {...(value !== undefined ? { checked: value === o.value, onChange: () => onChange?.(o.value) } : { defaultChecked: defaultValue === o.value })}
             />
-            <span className="flex min-h-11 items-center justify-center gap-1.5 rounded-[12px] px-2 text-[15px] font-semibold text-ink-600 transition peer-checked:bg-white peer-checked:text-ink-950 peer-checked:shadow-[var(--shadow-card)] peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-ink-900">
+            <span lang={o.lang} className="flex min-h-11 items-center justify-center gap-1.5 rounded-[12px] px-2 text-[15px] font-semibold text-ink-600 transition peer-checked:bg-white peer-checked:text-ink-950 peer-checked:shadow-[var(--shadow-card)] peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-ink-900">
               {o.icon && <o.icon className="size-4" aria-hidden />}
               {o.label}
             </span>

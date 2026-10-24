@@ -1,6 +1,6 @@
 # Pilot status
 
-Everything below runs for real: data is persisted in SQLite, sign-in is enforced on the server, and no action shows success before the database has committed it. Nothing is mocked.
+Everything below runs for real: data is persisted in MongoDB Atlas, sign-in is enforced on the server, and no action shows success before the database has committed it. Nothing is mocked.
 
 ## Acceptance criteria
 
@@ -33,7 +33,7 @@ Test suites: `npm test` (33 business-rule tests) and `npm run test:access` (21 H
 
 ## Integration still required
 
-- **Hosting**: a small Linux VPS (or any host with a persistent disk), a domain and HTTPS. See README → Deploy.
+- **Hosting**: Vercel + a MongoDB Atlas cluster in Mumbai, and a domain. See README → Deploy.
 - **Off-site backups**: schedule `npm run backup` and copy the `backups/` folder somewhere else (e.g. Google Drive via rclone).
 - **Optional later**: OTP sign-in (an SMS provider such as MSG91) as an extra verification step — sessions and accounts don't need to change. Not part of the pilot by design.
 
@@ -44,5 +44,5 @@ Test suites: `npm test` (33 business-rule tests) and `npm run test:access` (21 H
 - Money left over after an admin's custom split stays as advance credit and is applied to the oldest unpaid month when the next month is billed.
 - App screens are light-only (designed for daylight use on the gym floor); the public page is dark.
 - Offline: the app shows an offline banner and blocks nothing silently, but changes need a connection to save — there is no offline queue.
-- One gym, one admin account. SQLite on a single server comfortably covers ~100 members; moving to Postgres later is a contained change in `src/lib`.
+- One gym, one admin account. Atlas's free tier comfortably covers the pilot; balances are computed in memory per request, which suits hundreds of members (switch to aggregation pipelines if it ever reaches tens of thousands).
 - No Content-Security-Policy header yet (other security headers are set); worth adding once the hosting domain is final.

@@ -12,6 +12,7 @@ import type { MonthState } from "@/lib/queries";
 export type DirItem = {
   id: number;
   name: string;
+  photo: string | null;
   phone: string;
   digits: string;
   tel: string | null;
@@ -38,7 +39,7 @@ const match: Record<Filter, (r: DirItem) => boolean> = {
 };
 
 export function Directory({ rows, initialFilter, initialQuery }: { rows: DirItem[]; initialFilter: string; initialQuery: string }) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const [q, setQ] = useState(initialQuery);
   const [f, setF] = useState<Filter>(FILTERS.includes(initialFilter as Filter) ? (initialFilter as Filter) : "all");
   const dq = useDeferredValue(q);
@@ -75,13 +76,12 @@ export function Directory({ rows, initialFilter, initialQuery }: { rows: DirItem
             className="block min-h-12 w-full rounded-[14px] border border-sand-300 bg-white pl-11 pr-3.5 text-[16px] placeholder:text-ink-400 focus:border-ink-900 focus:outline-none focus:ring-4 focus:ring-volt/40"
           />
         </label>
-        <div role="radiogroup" aria-label={t("common.status")} className="no-scrollbar -mx-4 mt-2.5 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+        <div role="group" aria-label={t("common.status")} className="no-scrollbar -mx-4 mt-2.5 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
           {FILTERS.map((k) => (
             <button
               key={k}
               type="button"
-              role="radio"
-              aria-checked={f === k}
+              aria-pressed={f === k}
               onClick={() => setF(k)}
               className={cx(
                 "inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[14px] font-semibold transition",
@@ -106,7 +106,7 @@ export function Directory({ rows, initialFilter, initialQuery }: { rows: DirItem
           {shown.map((r) => (
             <li key={r.id} className="flex items-start gap-3 px-3.5 py-3 [contain-intrinsic-size:auto_84px] [content-visibility:auto] sm:items-center sm:px-4">
               <Link href={`/admin/members/${r.id}`} className="flex min-w-0 flex-1 items-start gap-3 rounded-xl sm:items-center">
-                <Avatar name={r.name} tone={r.overdue ? "ink" : "sand"} />
+                <Avatar name={r.name} photo={r.photo} tone={r.overdue ? "ink" : "sand"} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-[16px] font-semibold text-ink-950">{r.name}</span>
@@ -128,7 +128,7 @@ export function Directory({ rows, initialFilter, initialQuery }: { rows: DirItem
                   href={`/admin/pay?m=${r.id}`}
                   aria-label={`${t("admin.recordPayment")}: ${r.name}`}
                   title={t("admin.recordPayment")}
-                  className="grid size-11 place-items-center rounded-full border border-sand-300 bg-sand-0 text-ink-900 transition hover:border-ink-900 active:scale-95"
+                  className="hidden size-11 place-items-center rounded-full border border-sand-300 bg-sand-0 text-ink-900 transition hover:border-ink-900 active:scale-95 min-[360px]:grid"
                 >
                   <IndianRupee className="size-5" aria-hidden />
                 </Link>
@@ -136,7 +136,7 @@ export function Directory({ rows, initialFilter, initialQuery }: { rows: DirItem
                   href={r.tel ? `tel:${r.tel}` : undefined}
                   aria-disabled={!r.tel}
                   aria-label={`${t("common.call")}: ${r.name}`}
-                  title={r.tel ? r.phone : t("whatsapp.demoNote")}
+                  title={`${t("common.call")} ${r.phone}`}
                   className="hidden size-11 place-items-center rounded-full bg-sand-100 text-ink-800 transition hover:bg-sand-200 aria-disabled:opacity-40 min-[400px]:grid"
                 >
                   <Phone className="size-[18px]" aria-hidden />
@@ -156,15 +156,16 @@ export function Directory({ rows, initialFilter, initialQuery }: { rows: DirItem
       )}
     </>
   );
+}
 
-  function Amount({ r }: { r: DirItem }) {
-    if (r.outstanding > 0)
-      return (
-        <span className={cx("shrink-0 font-display text-[19px] font-bold tabular", r.overdue ? "text-bad" : "text-ink-950")}>
-          {money(r.outstanding, lang)}
-        </span>
-      );
-    if (r.credit > 0) return <span className="shrink-0 text-[14px] font-semibold text-ok tabular">+{money(r.credit, lang)}</span>;
-    return <span className="shrink-0 text-[13px] font-medium text-ink-500">{t("directory.settled")}</span>;
-  }
+function Amount({ r }: { r: DirItem }) {
+  const { t, lang } = useI18n();
+  if (r.outstanding > 0)
+    return (
+      <span className={cx("shrink-0 font-display text-[19px] font-bold tabular", r.overdue ? "text-bad" : "text-ink-950")}>
+        {money(r.outstanding, lang)}
+      </span>
+    );
+  if (r.credit > 0) return <span className="shrink-0 text-[14px] font-semibold text-ok tabular">+{money(r.credit, lang)}</span>;
+  return <span className="shrink-0 text-[13px] font-medium text-ink-500">{t("directory.settled")}</span>;
 }

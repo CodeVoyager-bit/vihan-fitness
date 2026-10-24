@@ -1,49 +1,53 @@
 import crypto from "node:crypto";
-import { promisify } from "node:util";
-import { AppError, audit, db, nowIso } from "./db";
+import { isAPIError } from "better-auth/api";
+import { PASSWORD_MIN, auth } from "./auth";
+import { AppError, appMode, audit, db, nextId, nowIso } from "./db";
 import { normalizePhone } from "./phone";
 
-// Passwords: Node's built-in scrypt (memory-hard KDF), per-user random salt, constant-time compare.
-const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, len: number, opts: crypto.ScryptOptions) => Promise<Buffer>;
-const KDF = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+// Passwords and sessions are Better Auth's (scrypt hashes, random session tokens); this file keeps the
+// gym's own rules around them: phone numbers, approval, rate limits and in-person reset codes.
 
-export async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.randomBytes(16);
-  const hash = await scrypt(password, salt, 64, KDF);
-  return `scrypt$${KDF.N}$${KDF.r}$${KDF.p}$${salt.toString("base64")}$${hash.toString("base64")}`;
-}
-
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [algo, N, r, p, salt, hash] = stored.split("$");
-  if (algo !== "scrypt") return false;
-  const expected = Buffer.from(hash, "base64");
-  const actual = await scrypt(password, Buffer.from(salt, "base64"), expected.length, { N: +N, r: +r, p: +p, maxmem: KDF.maxmem });
-  return crypto.timingSafeEqual(actual, expected);
-}
-
-export const PASSWORD_MIN = 8;
+export { PASSWORD_MIN };
 export function checkPassword(pw: string) {
   if (pw.length < PASSWORD_MIN || pw.length > 128) throw new AppError("passwordTooShort", "password");
 }
 
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 
+/** Better Auth signs in by email. Members only have a phone, so each phone gets a fixed hidden address. */
+export const authEmail = (phone: string) => `${phone.replace(/\D/g, "")}@phone.vihan`;
+
+/** The Better Auth error code, if `e` is one. */
+const authCode = (e: unknown) => (isAPIError(e) ? (e.body as { code?: string } | undefined)?.code : undefined);
+
 // ───────────────────────────── rate limiting ─────────────────────────────
 
-/** Fixed-window counter in SQLite. Returns false once `limit` hits within `windowSec`. */
-export function rateLimit(key: string, limit: number, windowSec: number): boolean {
+/**
+ * Fixed-window counter in the database. Returns false once `limit` hits within `windowSec`.
+ * One atomic upsert, so parallel requests (even on different server instances) can't slip past it.
+ */
+export async function rateLimit(rawKey: string, limit: number, windowSec: number): Promise<boolean> {
+  const key = rawKey.slice(0, 120); // keys include client-supplied values; keep rows small
   const now = Math.floor(Date.now() / 1000);
-  const row = db().prepare("SELECT count, window_start FROM rate_limits WHERE key = ?").get(key) as { count: number; window_start: number } | undefined;
-  if (!row || now - row.window_start >= windowSec) {
-    db().prepare("INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = 1, window_start = excluded.window_start").run(key, now);
-    return true;
-  }
-  if (row.count >= limit) return false;
-  db().prepare("UPDATE rate_limits SET count = count + 1 WHERE key = ?").run(key);
-  return true;
+  const r = await (await db()).rate_limits.findOneAndUpdate(
+    { _id: key },
+    [
+      { $set: { fresh: { $or: [{ $eq: [{ $type: "$window_start" }, "missing"] }, { $gte: [{ $subtract: [now, "$window_start"] }, windowSec] }] } } },
+      {
+        $set: {
+          count: { $cond: ["$fresh", 1, { $add: ["$count", 1] }] },
+          window_start: { $cond: ["$fresh", now, "$window_start"] },
+          expires_at: { $cond: ["$fresh", new Date((now + windowSec) * 1000), "$expires_at"] }, // TTL cleans up
+        },
+      },
+      { $unset: "fresh" },
+    ],
+    { upsert: true, returnDocument: "after" },
+  );
+  return r!.count <= limit;
 }
 
-export const clearRateLimit = (key: string) => db().prepare("DELETE FROM rate_limits WHERE key = ?").run(key);
+export const clearRateLimit = async (key: string) => void (await (await db()).rate_limits.deleteOne({ _id: key }));
 
 // ───────────────────────────── users ─────────────────────────────
 
@@ -59,79 +63,112 @@ export type SessionUser = {
   language: Lang;
 };
 
-export async function registerMember(input: { name: string; phone: string; password: string; language: string }) {
+/** The fields the app uses from a Better Auth user (or a `users` document). */
+export const sessionUser = (u: { uid: number; name: string; phone: string; role: string; status: string; language: string }): SessionUser => ({
+  id: u.uid,
+  name: u.name,
+  phone: u.phone,
+  role: u.role as SessionUser["role"],
+  status: u.status as SessionUser["status"],
+  language: u.language as Lang,
+});
+
+/** Better Auth's id for one of our users. */
+async function authId(uid: number): Promise<string> {
+  const u = await (await db()).users.findOne({ uid }, { projection: { _id: 1 } });
+  if (!u) throw new AppError("memberNotFound");
+  return u._id.toHexString();
+}
+
+/** Signs the user out everywhere. */
+export async function revokeSessions(uid: number) {
+  await (await auth().$context).internalAdapter.deleteUserSessions(await authId(uid));
+}
+
+/** Replaces the password without the old one (registration after rejection, reset codes, the admin script). */
+export async function setPassword(uid: number, password: string) {
+  const ctx = await auth().$context;
+  await ctx.internalAdapter.updatePassword(await authId(uid), await ctx.password.hash(password));
+}
+
+/** Registers a member (pending until Bharat approves) and signs them in. Returns the user id. */
+export async function registerMember(input: { name: string; phone: string; password: string; language: string }, headers?: Headers): Promise<number> {
   const name = input.name.trim().replace(/\s+/g, " ");
   if (name.length < 2 || name.length > 60) throw new AppError("nameInvalid", "name");
   const phone = normalizePhone(input.phone);
   if (!phone) throw new AppError("phoneInvalid", "phone");
   checkPassword(input.password);
   const language = LANGS.includes(input.language as Lang) ? input.language : "en";
-  if (db().prepare("SELECT 1 FROM users WHERE phone = ?").get(phone)) {
-    audit(null, "registration.duplicate", { detail: { phone: phone.slice(0, 5) + "•••••" + phone.slice(-2) } });
+  const d = await db();
+  const existing = await d.users.findOne({ phone }, { projection: { uid: 1, status: 1 } });
+  if (existing && existing.status !== "rejected") {
+    await audit(null, "registration.duplicate", { detail: { phone: phone.slice(0, 5) + "•••••" + phone.slice(-2) } });
     throw new AppError("phoneTaken", "phone");
   }
-  const hash = await hashPassword(input.password);
+  if (existing) {
+    // A rejected number can register again (e.g. it was someone else's attempt); it goes back to Bharat for review.
+    await setPassword(existing.uid, input.password);
+    await d.users.updateOne(
+      { _id: existing._id },
+      { $set: { name, language: language as Lang, status: "pending", rejected_reason: null, reviewed_at: null, reviewed_by: null, createdAt: new Date() } },
+    );
+    await audit(existing.uid, "registration.submitted", { entity: "user", entityId: existing.uid, detail: "re-registered after rejection" });
+    await auth().api.signInEmail({ body: { email: authEmail(phone), password: input.password }, headers });
+    return existing.uid;
+  }
   try {
-    const r = db()
-      .prepare("INSERT INTO users (phone, name, password_hash, role, status, language, created_at) VALUES (?, ?, ?, 'member', 'pending', ?, ?)")
-      .run(phone, name, hash, language, nowIso());
-    audit(Number(r.lastInsertRowid), "registration.submitted", { entity: "user", entityId: r.lastInsertRowid });
-    return Number(r.lastInsertRowid);
+    const r = await auth().api.signUpEmail({ body: { email: authEmail(phone), password: input.password, name, phone, language }, headers });
+    await audit(r.user.uid, "registration.submitted", { entity: "user", entityId: r.user.uid });
+    return r.user.uid;
   } catch (e) {
-    if (String(e).includes("UNIQUE")) throw new AppError("phoneTaken", "phone"); // lost a race with a twin submit
+    // Lost a race with a twin submit: the unique phone index refused the second one.
+    if (authCode(e) === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL" || authCode(e) === "FAILED_TO_CREATE_USER") throw new AppError("phoneTaken", "phone");
     throw e;
   }
 }
 
-/** Returns the user id on success. Same error for unknown phone and wrong password. */
-export async function authenticate(phoneInput: string, password: string, ip: string): Promise<number> {
+/** Signs in (sets the session cookie). Same error for unknown phone and wrong password. */
+export async function authenticate(phoneInput: string, password: string, ip: string, headers?: Headers): Promise<SessionUser> {
   const phone = normalizePhone(phoneInput);
   if (!phone) throw new AppError("phoneInvalid", "phone");
-  if (!rateLimit(`login:ip:${ip}`, 30, 15 * 60) || !rateLimit(`login:phone:${phone}`, 6, 15 * 60)) throw new AppError("tooManyAttempts");
-  const u = db().prepare("SELECT id, password_hash, status FROM users WHERE phone = ?").get(phone) as
-    | { id: number; password_hash: string; status: string }
-    | undefined;
-  // Hash anyway for unknown users so timing doesn't reveal which numbers are registered.
-  const ok = u ? await verifyPassword(password, u.password_hash) : (await hashPassword(password), false);
-  if (!u || !ok) throw new AppError("badCredentials");
-  if (u.status === "rejected") throw new AppError("accountRejected");
-  clearRateLimit(`login:phone:${phone}`);
-  return u.id;
+  // Guesses are limited per phone+IP (so a stranger can't lock the owner out from elsewhere), with
+  // looser caps per IP and per phone against spraying from one place or many.
+  if (!(await rateLimit(`login:ip:${ip}`, 30, 15 * 60)) || !(await rateLimit(`login:pip:${phone}|${ip}`, 6, 15 * 60)) || !(await rateLimit(`login:phone:${phone}`, 40, 15 * 60)))
+    throw new AppError("tooManyAttempts");
+  try {
+    // Better Auth hashes even for unknown numbers, so timing doesn't reveal which are registered.
+    const r = await auth().api.signInEmail({ body: { email: authEmail(phone), password }, headers });
+    await clearRateLimit(`login:pip:${phone}|${ip}`);
+    return sessionUser(r.user);
+  } catch (e) {
+    if (authCode(e) === "ACCOUNT_REJECTED") throw new AppError("accountRejected");
+    if (authCode(e) === "INVALID_EMAIL_OR_PASSWORD" || authCode(e) === "PASSWORD_TOO_LONG") throw new AppError("badCredentials");
+    throw e;
+  }
 }
 
-export async function changePassword(userId: number, current: string, next: string) {
-  const u = db().prepare("SELECT password_hash FROM users WHERE id = ?").get(userId) as { password_hash: string };
-  if (!(await verifyPassword(current, u.password_hash))) throw new AppError("badCurrentPassword", "current");
+/** Changes the password and signs out every other device (this one gets a fresh session). */
+export async function changePassword(userId: number, current: string, next: string, headers: Headers) {
+  if (!(await rateLimit(`pwchange:${userId}`, 5, 15 * 60))) throw new AppError("tooManyAttempts");
   checkPassword(next);
-  db().prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(await hashPassword(next), userId);
-  audit(userId, "password.changed", { entity: "user", entityId: userId });
+  try {
+    await auth().api.changePassword({ body: { currentPassword: current, newPassword: next, revokeOtherSessions: true }, headers });
+  } catch (e) {
+    if (authCode(e) === "INVALID_PASSWORD") throw new AppError("badCurrentPassword", "current");
+    throw e;
+  }
+  await audit(userId, "password.changed", { entity: "user", entityId: userId });
 }
 
-// ───────────────────────────── sessions ─────────────────────────────
-
-export const SESSION_DAYS = 30;
-
-/** Opaque random token in the cookie; only its SHA-256 is stored, so a DB leak can't be replayed. */
-export function createSession(userId: number): { token: string; expires: Date } {
-  const token = crypto.randomBytes(32).toString("base64url");
-  const expires = new Date(Date.now() + SESSION_DAYS * 86_400_000);
-  db().prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(sha256(token), userId, nowIso(), expires.toISOString());
-  return { token, expires };
+export async function signOut(headers: Headers) {
+  await auth().api.signOut({ headers });
 }
 
-export function userForToken(token: string | undefined): SessionUser | null {
-  if (!token) return null;
-  const u = db()
-    .prepare(
-      `SELECT u.id, u.name, u.phone, u.role, u.status, u.language FROM sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND s.expires_at > ?`,
-    )
-    .get(sha256(token), nowIso()) as SessionUser | undefined;
-  return u ?? null;
+/** The signed-in user for these request headers, or null. */
+export async function userForHeaders(headers: Headers): Promise<SessionUser | null> {
+  const s = await auth().api.getSession({ headers });
+  return s ? sessionUser(s.user) : null;
 }
-
-export const destroySession = (token: string) => db().prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token));
-export const destroyAllSessions = (userId: number) => db().prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
 
 // ───────────────────────────── password reset (no OTP) ─────────────────────────────
 // Bharat checks identity in person, then issues a short-lived, single-use code.
@@ -139,45 +176,62 @@ export const destroyAllSessions = (userId: number) => db().prepare("DELETE FROM 
 const RESET_MINUTES = 30;
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L confusion
 
-export function issueResetCode(userId: number, actorId: number): { code: string; expires: Date } {
+export async function issueResetCode(userId: number, actorId: number): Promise<{ code: string; expires: Date }> {
+  const d = await db();
+  // Only member accounts; the admin resets his own password from the command line.
+  if (!(await d.users.findOne({ uid: userId, role: "member" }, { projection: { _id: 1 } }))) throw new AppError("memberNotFound");
   let code = "";
   for (const b of crypto.randomBytes(8)) code += CODE_ALPHABET[b % CODE_ALPHABET.length];
   const expires = new Date(Date.now() + RESET_MINUTES * 60_000);
-  db().prepare("UPDATE reset_codes SET used_at = ? WHERE user_id = ? AND used_at IS NULL").run(nowIso(), userId); // one live code at a time
-  db().prepare("INSERT INTO reset_codes (user_id, code_hash, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?)").run(userId, sha256(code), expires.toISOString(), actorId, nowIso());
-  audit(actorId, "password.reset_issued", { memberId: userId, entity: "user", entityId: userId });
+  await d.reset_codes.updateMany({ user_id: userId, used_at: null }, { $set: { used_at: nowIso() } }); // one live code at a time
+  await d.reset_codes.insertOne({
+    _id: await nextId("reset_codes"),
+    user_id: userId,
+    code_hash: sha256(code),
+    expires_at: expires.toISOString(),
+    used_at: null,
+    attempts: 0,
+    created_by: actorId,
+    created_at: nowIso(),
+  });
+  await audit(actorId, "password.reset_issued", { memberId: userId, entity: "user", entityId: userId });
   return { code, expires };
 }
 
 export async function redeemResetCode(phoneInput: string, code: string, newPassword: string, ip: string) {
   const phone = normalizePhone(phoneInput);
   if (!phone) throw new AppError("phoneInvalid", "phone");
-  if (!rateLimit(`reset:ip:${ip}`, 20, 15 * 60)) throw new AppError("tooManyAttempts");
+  if (!(await rateLimit(`reset:ip:${ip}`, 20, 15 * 60))) throw new AppError("tooManyAttempts");
   checkPassword(newPassword);
-  const row = db()
-    .prepare(
-      `SELECT r.id, r.code_hash, r.attempts, u.id AS user_id FROM reset_codes r JOIN users u ON u.id = r.user_id
-       WHERE u.phone = ? AND r.used_at IS NULL AND r.expires_at > ? ORDER BY r.id DESC LIMIT 1`,
-    )
-    .get(phone, nowIso()) as { id: number; code_hash: string; attempts: number; user_id: number } | undefined;
+  const d = await db();
+  const user = await d.users.findOne({ phone }, { projection: { uid: 1 } });
+  const row = user && (await d.reset_codes.findOne({ user_id: user.uid, used_at: null, expires_at: { $gt: nowIso() } }, { sort: { _id: -1 } }));
   const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (!row || row.attempts >= 5) throw new AppError("resetCodeInvalid", "code");
-  const ok = crypto.timingSafeEqual(Buffer.from(row.code_hash), Buffer.from(sha256(normalized)));
-  if (!ok) {
-    db().prepare("UPDATE reset_codes SET attempts = attempts + 1 WHERE id = ?").run(row.id);
+  if (!user || !row || row.attempts >= 5) throw new AppError("resetCodeInvalid", "code");
+  if (!crypto.timingSafeEqual(Buffer.from(row.code_hash), Buffer.from(sha256(normalized)))) {
+    await d.reset_codes.updateOne({ _id: row._id }, { $inc: { attempts: 1 } });
     throw new AppError("resetCodeInvalid", "code");
   }
-  const hash = await hashPassword(newPassword);
-  db().transaction(() => {
-    db().prepare("UPDATE reset_codes SET used_at = ? WHERE id = ?").run(nowIso(), row.id);
-    db().prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, row.user_id);
-    destroyAllSessions(row.user_id);
-  })();
-  audit(row.user_id, "password.reset_used", { memberId: row.user_id, entity: "user", entityId: row.user_id });
-  return row.user_id;
+  // Claiming the code first makes it single-use even if two submits race.
+  if ((await d.reset_codes.updateOne({ _id: row._id, used_at: null }, { $set: { used_at: nowIso() } })).modifiedCount !== 1) throw new AppError("resetCodeInvalid", "code");
+  await setPassword(user.uid, newPassword);
+  await revokeSessions(user.uid);
+  await audit(user.uid, "password.reset_used", { memberId: user.uid, entity: "user", entityId: user.uid });
+  return user.uid;
 }
 
-export function setLanguage(userId: number, lang: string) {
+export async function setLanguage(userId: number, lang: string) {
   if (!LANGS.includes(lang as Lang)) throw new AppError("invalidInput");
-  db().prepare("UPDATE users SET language = ? WHERE id = ?").run(lang, userId);
+  await (await db()).users.updateOne({ uid: userId }, { $set: { language: lang as Lang } });
+}
+
+// ───────────────────────────── demo ─────────────────────────────
+
+/** Every seeded demo account shares this password (demo database only). */
+export const demoPassword = () => process.env.DEMO_PASSWORD || "vihan-demo";
+
+/** Demo mode only: one-tap sign-in to a seeded account. */
+export async function signInDemo(phone: string, headers: Headers) {
+  if (appMode() !== "demo") throw new AppError("demoOnly");
+  await auth().api.signInEmail({ body: { email: authEmail(phone), password: demoPassword() }, headers });
 }

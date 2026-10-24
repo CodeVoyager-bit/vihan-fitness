@@ -2,7 +2,8 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { getUser } from "../session";
-import { type Lang, isLang, makeT } from "./index";
+import { getSite } from "../site";
+import { type Lang, LANGS, type T, type TCtx, isLang, makeT } from "./index";
 
 export const LANG_COOKIE = "vf_lang";
 
@@ -18,7 +19,17 @@ export const getLang = cache(async (): Promise<Lang> => {
   return "en";
 });
 
-export async function getT() {
-  const lang = await getLang();
-  return { t: makeT(lang), lang };
+/** The owner's brand names and wording overrides for one language. */
+export async function i18nCtx(lang: Lang): Promise<TCtx> {
+  const { vars, overrides } = await getSite(lang);
+  return { vars, overrides };
 }
+
+export const getT = cache(async () => {
+  const lang = await getLang();
+  const ctx = await i18nCtx(lang);
+  return { t: makeT(lang, ctx), lang, ctx };
+});
+
+/** A translator for every language (WhatsApp messages are offered in all three). */
+export const allT = cache(async (): Promise<Record<Lang, T>> => Object.fromEntries(await Promise.all(LANGS.map(async (l) => [l, makeT(l, await i18nCtx(l))]))));

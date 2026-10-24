@@ -3,49 +3,52 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarCheck2, HandCoins, Hourglass, Phone, ReceiptText } from "lucide-react";
 import { AddChargeSheet, Checklist, FollowupToggle, ResetCodeSheet, ReversePaymentSheet, StatusSheet, UndoWaiverSheet, VisitSheet, WaiveSheet } from "./sheets";
+import { memberPhotoAction } from "@/app/actions/admin";
 import { ActivityList } from "@/components/admin/activity";
 import { VisitCalendar } from "@/components/calendar";
-import { WhatsAppSheet } from "@/components/client";
+import { PhotoButtons, WhatsAppSheet } from "@/components/client";
 import { Avatar, Badge, Bar, ButtonLink, Card, EmptyState, KeyValue, Notice, SectionTitle, StatusBadge, cx } from "@/components/ui";
 import { isDemo } from "@/lib/db";
 import { ONBOARDING_ITEMS, goalFor, lastVisit, onboardingDone, visitDates } from "@/lib/engage";
-import { fmtDate, fmtDateTime, fmtMonth, fmtMonths, money, relDay } from "@/lib/format";
+import { claimReason, fmtDate, fmtDateTime, fmtMonth, fmtMonths, money, relDay } from "@/lib/format";
 import type { T } from "@/lib/i18n";
-import { getT } from "@/lib/i18n/server";
+import { allT, getT } from "@/lib/i18n/server";
 import { balanceOf, chargesFor, statusAt } from "@/lib/ledger";
 import { attendanceMessages, feeMessages } from "@/lib/messages";
+import { photosEnabled } from "@/lib/photos";
 import { formatPhone, waNumber } from "@/lib/phone";
 import { activity, claimsFor, lastReminder, paymentsFor, profile, remindersFor, statusHistory, waiversFor } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
-import { addMonths, currentMonth, monthsBetween, todayIST } from "@/lib/time";
+import { addMonths, currentMonth, istDate, monthsBetween, todayIST } from "@/lib/time";
 
 type Tab = "fees" | "payments" | "visits" | "profile";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   await requireAdmin();
-  const p = profile(Number((await params).id));
-  return { title: p?.name ?? "Member" };
+  const p = await profile(Number((await params).id));
+  return { title: p?.name ?? (await getT()).t("common.member") };
 }
 
 export default async function MemberPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; wa?: string }> }) {
   await requireAdmin();
   const id = Number((await params).id);
-  const p = Number.isInteger(id) ? profile(id) : undefined;
+  const p = Number.isInteger(id) ? await profile(id) : undefined;
   if (!p) notFound();
   const sp = await searchParams;
   const tab: Tab = (["fees", "payments", "visits", "profile"] as const).find((x) => x === sp.tab) ?? "fees";
   const { t, lang } = await getT();
+  const ts = await allT();
   const today = todayIST();
   const month = currentMonth();
-  const status = statusAt(id, month) ?? "active";
-  const bal = balanceOf(id, today);
-  const charges = chargesFor(id);
+  const status = await statusAt(id, month) ?? "active";
+  const bal = await balanceOf(id, today);
+  const charges = await chargesFor(id);
   const open = charges.filter((c) => c.outstanding > 0);
   const demo = isDemo();
   const rel = (s: string) => relDay(s, today, t);
-  const lastFee = lastReminder(id, "fee");
-  const lastAtt = lastReminder(id, "attendance");
-  const pendingClaims = claimsFor(id).filter((c) => c.status === "pending");
+  const lastFee = await lastReminder(id, "fee");
+  const lastAtt = await lastReminder(id, "attendance");
+  const pendingClaims = (await claimsFor(id)).filter((c) => c.status === "pending");
   const waKind = sp.wa === "attendance" || (!sp.wa && bal.outstanding === 0) ? "attendance" : "fee";
 
   const tabs: { key: Tab; label: string }[] = [
@@ -63,7 +66,7 @@ export default async function MemberPage({ params, searchParams }: { params: Pro
       </Link>
 
       <header className="flex items-center gap-4">
-        <Avatar name={p.name} size="lg" tone={bal.overdue ? "ink" : "volt"} />
+        <Avatar name={p.name} photo={p.photo} size="lg" tone={bal.overdue ? "ink" : "volt"} />
         <div className="min-w-0">
           <h1 className="font-display text-[32px] font-extrabold leading-[1.05] text-ink-950 sm:text-[38px]">{p.name}</h1>
           <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink-600">
@@ -98,6 +101,7 @@ export default async function MemberPage({ params, searchParams }: { params: Pro
             {t("admin.recordPayment")}
           </ButtonLink>
           <WhatsAppSheet
+            key={waKind}
             memberId={id}
             name={p.name}
             waNumber={demo ? null : waNumber(p.phone)}
@@ -105,8 +109,8 @@ export default async function MemberPage({ params, searchParams }: { params: Pro
             kind={waKind}
             messages={
               waKind === "fee"
-                ? feeMessages(p.name, bal.outstanding, open.filter((c) => c.kind === "monthly").map((c) => c.period_month!), open.some((c) => c.kind !== "monthly"))
-                : attendanceMessages(p.name)
+                ? feeMessages(ts, p.name, bal.outstanding, open.filter((c) => c.kind === "monthly").map((c) => c.period_month!), open.some((c) => c.kind !== "monthly"))
+                : attendanceMessages(ts, p.name)
             }
             lastOpenedLabel={(waKind === "fee" ? lastFee : lastAtt) ? t("whatsapp.lastOpened", { when: rel((waKind === "fee" ? lastFee : lastAtt)!) }) : t("whatsapp.neverOpened")}
             claimWarning={waKind === "fee" && pendingClaims.length ? t("whatsapp.claimWarning", { name: p.name.split(" ")[0], amount: money(pendingClaims[0].amount_paise, lang) }) : null}
@@ -175,8 +179,8 @@ export default async function MemberPage({ params, searchParams }: { params: Pro
 
 type Lang = "en" | "mr" | "hi";
 
-function FeesTab({ id, t, lang, charges }: { id: number; t: T; lang: Lang; charges: ReturnType<typeof chargesFor> }) {
-  const waivers = waiversFor(id);
+async function FeesTab({ id, t, lang, charges }: { id: number; t: T; lang: Lang; charges: Awaited<ReturnType<typeof chargesFor>> }) {
+  const waivers = await waiversFor(id);
   const today = todayIST();
   return (
     <>
@@ -236,9 +240,9 @@ function waiverReason(code: string, t: T, lang: Lang) {
   return t("memberDetail.statusWaiver", { status: t(`memberStatus.${status as "paused"}`).toLowerCase(), month: fmtMonth(month, lang) });
 }
 
-function PaymentsTab({ id, t, lang }: { id: number; t: T; lang: Lang }) {
-  const payments = paymentsFor(id);
-  const claims = claimsFor(id);
+async function PaymentsTab({ id, t, lang }: { id: number; t: T; lang: Lang }) {
+  const payments = await paymentsFor(id);
+  const claims = await claimsFor(id);
   return (
     <>
       <SectionTitle>{t("memberDetail.payments")}</SectionTitle>
@@ -259,7 +263,7 @@ function PaymentsTab({ id, t, lang }: { id: number; t: T; lang: Lang }) {
                     </p>
                     {!p.reversed_at && (
                       <p className="mt-0.5 text-[14px] text-ink-700">
-                        {[months.length ? t("memberDetail.covers", { months: fmtMonths(months, lang) }) : "", p.other_allocated ? t("memberDetail.opening") : "", p.unallocated_paise > 0 ? t("memberDetail.toCredit", { amount: money(p.unallocated_paise, lang) }) : ""]
+                        {[months.length ? t("memberDetail.covers", { months: fmtMonths(months, lang) }) : "", p.other_allocated ? t("memberDetail.otherCharges") : "", p.unallocated_paise > 0 ? t("memberDetail.toCredit", { amount: money(p.unallocated_paise, lang) }) : ""]
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
@@ -299,7 +303,7 @@ function PaymentsTab({ id, t, lang }: { id: number; t: T; lang: Lang }) {
                   {fmtDate(c.paid_on, lang)}
                   {c.reference && ` · ${c.reference}`}
                 </p>
-                {c.reject_reason && <p className="mt-0.5 text-[14px] text-bad">“{c.reject_reason}”</p>}
+                {c.reject_reason && <p className="mt-0.5 text-[14px] text-bad">“{claimReason(c.reject_reason, t)}”</p>}
               </div>
               <StatusBadge status={c.status} label={t(`claimStatus.${c.status}`)} />
             </div>
@@ -310,12 +314,12 @@ function PaymentsTab({ id, t, lang }: { id: number; t: T; lang: Lang }) {
   );
 }
 
-function VisitsTab({ id, t, lang, today }: { id: number; t: T; lang: Lang; today: string }) {
+async function VisitsTab({ id, t, lang, today }: { id: number; t: T; lang: Lang; today: string }) {
   const month = today.slice(0, 7);
-  const visits = visitDates(id, month);
-  const goal = goalFor(id, month);
-  const last = lastVisit(id);
-  const reminders = remindersFor(id);
+  const visits = await visitDates(id, month);
+  const goal = await goalFor(id, month);
+  const last = await lastVisit(id);
+  const reminders = await remindersFor(id);
   return (
     <>
       <Card className="p-4 sm:p-5">
@@ -365,15 +369,25 @@ function VisitsTab({ id, t, lang, today }: { id: number; t: T; lang: Lang; today
   );
 }
 
-function ProfileTab({ id, t, lang, p, status, charges }: { id: number; t: T; lang: Lang; p: NonNullable<ReturnType<typeof profile>>; status: string; charges: ReturnType<typeof chargesFor> }) {
-  const history = statusHistory(id);
-  const done = onboardingDone(id);
+async function ProfileTab({ id, t, lang, p, status, charges }: { id: number; t: T; lang: Lang; p: NonNullable<Awaited<ReturnType<typeof profile>>>; status: string; charges: Awaited<ReturnType<typeof chargesFor>> }) {
+  const auditRows = await activity(40, id);
+  const history = await statusHistory(id);
+  const done = await onboardingDone(id);
   const now = currentMonth();
   const months = monthsBetween(p.billing_start_month, addMonths(now, 3)).reverse();
   const upcoming = history.find((h) => h.effective_month > now);
   return (
     <>
-      <SectionTitle action={<StatusSheet memberId={id} current={status as "active"} months={months} billingStart={p.billing_start_month} charges={charges.filter((c) => c.kind === "monthly").map((c) => ({ month: c.period_month!, outstanding: c.outstanding, paid: c.paid_paise }))} />}>
+      {photosEnabled() && (
+        <>
+          <SectionTitle>{t("common.photo")}</SectionTitle>
+          <Card className="flex items-center gap-4 p-4">
+            <Avatar name={p.name} photo={p.photo} size="lg" />
+            <PhotoButtons action={memberPhotoAction.bind(null, id)} has={!!p.photo} />
+          </Card>
+        </>
+      )}
+      <SectionTitle action={<StatusSheet memberId={id} current={status as "active"} months={months} thisMonth={now} billingStart={p.billing_start_month} charges={charges.filter((c) => c.kind === "monthly").map((c) => ({ month: c.period_month!, outstanding: c.outstanding, paid: c.paid_paise }))} />}>
         {t("memberDetail.membership")}
       </SectionTitle>
       <Card className="px-4 py-1">
@@ -381,8 +395,8 @@ function ProfileTab({ id, t, lang, p, status, charges }: { id: number; t: T; lan
           items={[
             [t("common.status"), <StatusBadge key="s" status={status} label={t(`memberStatus.${status as "active"}`)} />],
             ...(upcoming ? ([[t("memberDetail.effectiveMonth"), t("memberDetail.scheduled", { status: t(`memberStatus.${upcoming.status}`), month: fmtMonth(upcoming.effective_month, lang) })]] as [string, string][]) : []),
-            [t("memberDetail.since", { month: "" }).trim(), fmtDate(p.reviewed_at.slice(0, 10), lang)],
-            [t("memberDetail.billingFrom", { month: "" }).trim(), fmtMonth(p.billing_start_month, lang, "long")],
+            [t("memberDetail.sinceLabel"), fmtDate(istDate(p.reviewed_at), lang)],
+            [t("memberDetail.billingFromLabel"), fmtMonth(p.billing_start_month, lang, "long")],
             [t("auth.phone"), formatPhone(p.phone)],
           ]}
         />
@@ -399,7 +413,7 @@ function ProfileTab({ id, t, lang, p, status, charges }: { id: number; t: T; lan
             <p className="text-right text-[14px] text-ink-600">
               {fmtMonth(h.effective_month, lang, "long")}
               <br />
-              <span className="text-[13px] text-ink-500">{fmtDate(h.created_at.slice(0, 10), lang)}</span>
+              <span className="text-[13px] text-ink-500">{fmtDate(istDate(h.created_at), lang)}</span>
             </p>
           </div>
         ))}
@@ -418,10 +432,7 @@ function ProfileTab({ id, t, lang, p, status, charges }: { id: number; t: T; lan
 
       <SectionTitle>{t("memberDetail.audit")}</SectionTitle>
       <Card as="div" className="px-4 py-1">
-        {(() => {
-          const rows = activity(40, id);
-          return rows.length ? <ActivityList rows={rows} t={t} lang={lang} linkMembers={false} /> : <p className="py-6 text-center text-ink-500">{t("memberDetail.noAudit")}</p>;
-        })()}
+        {auditRows.length ? <ActivityList rows={auditRows} t={t} lang={lang} linkMembers={false} /> : <p className="py-6 text-center text-ink-500">{t("memberDetail.noAudit")}</p>}
       </Card>
     </>
   );

@@ -12,14 +12,18 @@ import { pendingRegistrations, startMonthOptions } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { currentMonth, todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Registrations" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("approvals.title") };
+}
 
 export default async function ApprovalsPage() {
   await requireAdmin();
   const { t, lang } = await getT();
-  const rows = pendingRegistrations();
-  const months = startMonthOptions(setting("launch_month"));
+  const rows = await pendingRegistrations();
+  const months = startMonthOptions(await setting("launch_month"));
   const now = currentMonth();
+  const fee = (await feeFor(now)) ?? 0;
   const today = todayIST();
   return (
     <div className="mx-auto max-w-3xl">
@@ -49,7 +53,7 @@ export default async function ApprovalsPage() {
               </div>
               <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
                 <RejectRegistration userId={r.id} name={r.name} />
-                <Approve userId={r.id} name={r.name} months={months} defaultMonth={now} fee={money(feeFor(now) ?? 0, lang)} />
+                <Approve userId={r.id} name={r.name} months={months} defaultMonth={now} fee={money(fee, lang)} />
               </div>
             </Card>
           ))}

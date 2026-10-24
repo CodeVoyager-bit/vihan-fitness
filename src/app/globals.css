@@ -87,9 +87,6 @@
   :lang(mr),
   :lang(hi) {
     line-height: 1.65;
-  }
-  :lang(mr) *,
-  :lang(hi) * {
     letter-spacing: normal !important;
   }
   .font-display {

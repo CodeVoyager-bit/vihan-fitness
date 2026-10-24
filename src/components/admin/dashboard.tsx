@@ -41,11 +41,11 @@ export function MemberGrid({ members, legend }: { members: GridMember[]; legend:
   const counts = Object.fromEntries(order.map((k) => [k, members.filter((m) => norm(m.state) === k).length]));
   return (
     <div>
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] gap-1.5">
+      <ul className="relative grid grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] gap-1.5">
         {sorted.map((m) => {
           const g = GRID_STATES.find((x) => x.key === norm(m.state))!;
           return (
-            <li key={m.id} className="group relative">
+            <li key={m.id} className="group">
               <Link
                 href={`/admin/members/${m.id}`}
                 aria-label={`${m.name} — ${m.stateLabel}`}
@@ -53,7 +53,7 @@ export function MemberGrid({ members, legend }: { members: GridMember[]; legend:
               >
                 <g.icon className="size-4" strokeWidth={2.6} aria-hidden />
               </Link>
-              <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink-900 px-2.5 py-1.5 text-[13px] font-medium text-sand-0 shadow-[var(--shadow-lift)] group-hover:block group-focus-within:block">
+              <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 hidden max-w-full -translate-x-1/2 truncate whitespace-nowrap rounded-lg bg-ink-900 px-2.5 py-1.5 text-[13px] font-medium text-sand-0 shadow-[var(--shadow-lift)] group-hover:block group-focus-within:block">
                 {m.name} · {m.stateLabel}
               </span>
             </li>

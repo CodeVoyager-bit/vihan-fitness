@@ -57,5 +57,5 @@ Admin  (bottom nav: Today · Members · [+ Record] · Inbox · More; sidebar on 
 - **WhatsApp** opens a prefilled message; Bharat presses Send. The app records "opened", never
   "sent".
 - **Single gym, single admin.** Admin accounts are created from the command line only.
-- **Hosting**: one small Node server with a SQLite file (cheap, simple backups). Demo and live
-  use different database files and the app refuses to mix them.
+- **Hosting**: Vercel with a MongoDB Atlas cluster (free tier for the pilot). Demo and live
+  use different databases, so they can never mix.

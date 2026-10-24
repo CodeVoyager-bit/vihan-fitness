@@ -26,9 +26,12 @@ export function lookup(dict: Dict, key: string): string | undefined {
 export const interpolate = (s: string, vars?: Vars) =>
   vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s;
 
-export function makeT(lang: Lang): T {
+/** Owner edits from Admin → More: brand names filled into every text, and wording overrides by key. */
+export type TCtx = { vars?: Vars; overrides?: Record<string, string> };
+
+export function makeT(lang: Lang, ctx: TCtx = {}): T {
   const dict = DICTS[lang];
-  return (key, vars) => interpolate(lookup(dict, key) ?? lookup(en, key) ?? key, vars);
+  return (key, vars) => interpolate(ctx.overrides?.[key] ?? lookup(dict, key) ?? lookup(en, key) ?? key, ctx.vars ? { ...ctx.vars, ...vars } : vars);
 }
 
 /** For dynamic keys built at runtime (e.g. `activity.${action}`) with a safe fallback. */

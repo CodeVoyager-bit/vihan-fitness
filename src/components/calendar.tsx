@@ -13,30 +13,28 @@ export function VisitCalendar({ month, visits, today, lang, label, visitedLabel,
   const wk = new Intl.DateTimeFormat(localeTag(lang), { weekday: "narrow", timeZone: "UTC" });
   const longDay = new Intl.DateTimeFormat(localeTag(lang), { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
   const heads = Array.from({ length: 7 }, (_, i) => wk.format(new Date(Date.UTC(2024, 0, 1 + i)))); // 1 Jan 2024 was a Monday
-  const cells = [...Array(lead).fill(null), ...Array.from({ length: n }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`)];
+  const days = Array.from({ length: n }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
 
   return (
-    <div role="grid" aria-label={label} className="select-none">
-      <div role="row" className="mb-1 grid grid-cols-7 text-center text-[12px] font-semibold uppercase text-ink-500">
+    <div className="select-none">
+      <div aria-hidden className="mb-1 grid grid-cols-7 text-center text-[12px] font-semibold uppercase text-ink-500">
         {heads.map((h, i) => (
-          <span role="columnheader" key={i} className="py-1">
+          <span key={i} className="py-1">
             {h}
           </span>
         ))}
       </div>
-      <div role="rowgroup" className={cx("grid grid-cols-7", compact ? "gap-1" : "gap-1.5")}>
-        {cells.map((d, i) => {
-          if (!d) return <span key={`b${i}`} aria-hidden />;
+      <ol aria-label={label} className={cx("grid grid-cols-7", compact ? "gap-1" : "gap-1.5")}>
+        {days.map((d, i) => {
           const visited = set.has(d);
           const isToday = d === today;
           const future = d > today;
           const day = Number(d.slice(8));
           const desc = `${longDay.format(new Date(`${d}T00:00:00Z`))}${visited ? ` — ${visitedLabel}` : ""}${isToday ? ` (${todayLabel})` : ""}`;
           return (
-            <span
-              role="gridcell"
+            <li
               key={d}
-              aria-label={desc}
+              style={i === 0 && lead ? { gridColumnStart: lead + 1 } : undefined}
               className={cx(
                 "relative grid aspect-square place-items-center rounded-full font-semibold tabular",
                 compact ? "text-[13px]" : "text-[15px]",
@@ -44,16 +42,17 @@ export function VisitCalendar({ month, visits, today, lang, label, visitedLabel,
                 isToday && "ring-2 ring-ink-900 ring-offset-2 ring-offset-sand-0",
               )}
             >
-              {day}
+              <span aria-hidden>{day}</span>
+              <span className="sr-only">{desc}</span>
               {visited && (
                 <span aria-hidden className="absolute -right-0.5 -top-0.5 grid size-[15px] place-items-center rounded-full bg-ink-950 text-volt">
                   <Check className="size-2.5" strokeWidth={4} />
                 </span>
               )}
-            </span>
+            </li>
           );
         })}
-      </div>
+      </ol>
     </div>
   );
 }

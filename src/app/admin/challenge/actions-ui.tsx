@@ -85,6 +85,7 @@ export function BuddyToggle({ challengeId, memberId, done }: { challengeId: numb
     <button type="button" disabled={pending} onClick={() => start(() => buddyDoneAction(challengeId, memberId, !done))} className={btn({ variant: done ? "ghost" : "secondary", size: "sm" })}>
       {done ? <Undo2 className="size-4" aria-hidden /> : <Check className="size-4" aria-hidden />}
       {done ? t("challenge.completed") : t("challenge.markDone")}
+      {done && <span className="sr-only"> · {t("challenge.undoDone")}</span>}
     </button>
   );
 }

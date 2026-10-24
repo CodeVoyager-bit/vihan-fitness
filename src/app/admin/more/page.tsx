@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronRight, Download, HardDriveDownload, LifeBuoy, LogOut, Printer, QrCode, ReceiptText, Trophy, UserPlus, UserRoundSearch } from "lucide-react";
-import { BillingForm, FeeForm, FollowupForm, PasswordForm, PublicForm, RunBilling } from "./forms";
+import { BadgeCheck, ChevronRight, Download, Globe, HardDriveDownload, LifeBuoy, LogOut, MapPin, MessageSquareText, Printer, QrCode, ReceiptText, Scale, Trophy, Type, UserPlus, UserRoundSearch } from "lucide-react";
+import { BillingForm, FeeForm, FollowupForm, PasswordForm, RunBilling } from "./forms";
 import { logoutAction } from "@/app/actions/common";
 import { rotateCheckinAction } from "@/app/actions/admin";
 import { ConfirmAction, LangSwitcher } from "@/components/client";
@@ -9,18 +9,20 @@ import { ButtonLink, Card, KeyValue, PageHeader, SectionTitle, btn } from "@/com
 import { setting, settingInt } from "@/lib/db";
 import { fmtMonth, money } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
-import { publicInfo } from "@/lib/public";
 import { checkinUrl, qrSvg, registerUrl } from "@/lib/qr";
 import { feeSchedule, inboxCounts } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { addMonths, currentMonth } from "@/lib/time";
 
-export const metadata: Metadata = { title: "More" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("settings.title") };
+}
 
 export default async function MorePage() {
   await requireAdmin();
   const { t, lang } = await getT();
-  const c = inboxCounts();
+  const c = await inboxCounts();
   const [checkin, register] = await Promise.all([checkinUrl(), registerUrl()]);
   const [checkinQr, registerQr] = await Promise.all([qrSvg(checkin), qrSvg(register)]);
   const links = [
@@ -30,6 +32,15 @@ export default async function MorePage() {
     { href: "/admin/help", icon: LifeBuoy, label: t("help.adminTitle"), n: c.help },
     { href: "/admin/challenge", icon: Trophy, label: t("challenge.title") },
   ];
+  // Everything shown on the site and in messages: no developer needed to change it.
+  const site = [
+    { href: "/admin/more/brand", icon: BadgeCheck, page: "brand" },
+    { href: "/admin/more/website", icon: Globe, page: "website" },
+    { href: "/admin/more/contact", icon: MapPin, page: "contact" },
+    { href: "/admin/more/messages", icon: MessageSquareText, page: "messages" },
+    { href: "/admin/more/rules", icon: Scale, page: "rules" },
+    { href: "/admin/more/text", icon: Type, page: "text" },
+  ] as const;
   const exports = [
     ["members", t("settings.exportMembers")],
     ["charges", t("settings.exportCharges")],
@@ -51,6 +62,22 @@ export default async function MorePage() {
               <span className="flex-1 font-semibold text-ink-950">{l.label}</span>
               {!!l.n && <span className="grid min-w-6 place-items-center rounded-full bg-bad px-1.5 text-[13px] font-bold leading-6 text-white">{l.n}</span>}
               <ChevronRight className="size-5 text-ink-400" aria-hidden />
+            </Link>
+          </li>
+        ))}
+      </Card>
+
+      <SectionTitle>{t("site.sectionTitle")}</SectionTitle>
+      <Card as="ul" className="divide-y divide-sand-200">
+        {site.map((l) => (
+          <li key={l.href}>
+            <Link href={l.href} className="flex min-h-16 items-center gap-3 px-4 py-2 transition hover:bg-sand-50">
+              <l.icon className="size-5 shrink-0 text-ink-600" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-ink-950">{t(`site.pages.${l.page}.title`)}</span>
+                <span className="block text-[14px] text-ink-600">{t(`site.pages.${l.page}.sub`)}</span>
+              </span>
+              <ChevronRight className="size-5 shrink-0 text-ink-400" aria-hidden />
             </Link>
           </li>
         ))}
@@ -101,10 +128,10 @@ export default async function MorePage() {
 
       <SectionTitle>{t("settings.billing")}</SectionTitle>
       <Card className="space-y-6 p-4">
-        <BillingForm launch={setting("launch_month") ?? currentMonth()} dueDay={settingInt("due_day", 10)} />
+        <BillingForm launch={await setting("launch_month") ?? currentMonth()} dueDay={await settingInt("due_day", 10)} />
         <div className="border-t border-sand-200 pt-5">
           <p className="mb-1 text-[15px] font-semibold text-ink-900">{t("settings.feeSchedule")}</p>
-          <KeyValue items={feeSchedule().map((f) => [fmtMonth(f.effective_month, lang, "long"), money(f.amount_paise, lang)] as [string, string])} />
+          <KeyValue items={(await feeSchedule()).map((f) => [fmtMonth(f.effective_month, lang, "long"), money(f.amount_paise, lang)] as [string, string])} />
           <div className="mt-4">
             <FeeForm nextMonth={addMonths(currentMonth(), 1)} />
           </div>
@@ -116,13 +143,7 @@ export default async function MorePage() {
 
       <SectionTitle>{t("settings.followups")}</SectionTitle>
       <Card className="p-4">
-        <FollowupForm days={settingInt("inactivity_days", 8)} cooldown={settingInt("followup_cooldown_days", 7)} />
-      </Card>
-
-      <SectionTitle>{t("settings.publicPage")}</SectionTitle>
-      <Card className="p-4">
-        <p className="mb-4 text-[14px] text-ink-600">{t("settings.publicHelp")}</p>
-        <PublicForm values={publicInfo()} />
+        <FollowupForm days={await settingInt("inactivity_days", 8)} cooldown={await settingInt("followup_cooldown_days", 7)} />
       </Card>
 
       <SectionTitle>{t("settings.account")}</SectionTitle>

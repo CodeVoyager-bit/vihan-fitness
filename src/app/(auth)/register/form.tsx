@@ -33,9 +33,9 @@ export function RegisterForm({ lang }: { lang: Lang }) {
         legend={t("auth.preferredLanguage")}
         defaultValue={kept("language", lang)}
         options={[
-          { value: "en", label: "English" },
-          { value: "mr", label: "मराठी" },
-          { value: "hi", label: "हिन्दी" },
+          { value: "en", label: "English", lang: "en" },
+          { value: "mr", label: "मराठी", lang: "mr" },
+          { value: "hi", label: "हिन्दी", lang: "hi" },
         ]}
       />
       <p className="flex items-start gap-2 rounded-[14px] bg-sand-100 px-3.5 py-3 text-[14px] text-ink-700">

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarCheck2, CheckCircle2, Clock, Dumbbell, HandCoins, Languages, LifeBuoy, MapPin, MessageCircle, Phone, QrCode, ReceiptText, Target, ArrowDown, ArrowRight, ImageIcon } from "lucide-react";
+import { CalendarCheck2, CheckCircle2, Clock, Dumbbell, ExternalLink, HandCoins, Languages, LifeBuoy, MapPin, MessageCircle, Phone, QrCode, ReceiptText, Target, ArrowDown, ArrowRight, ImageIcon } from "lucide-react";
 import ClickSpark from "@/components/bits/ClickSpark";
 import CircularText from "@/components/bits/CircularText";
 import CountUp from "@/components/bits/CountUp";
@@ -21,21 +21,34 @@ import { HeroBackground } from "./hero-bg";
 import { LangSwitcher } from "@/components/client";
 import { useI18n } from "@/components/i18n-provider";
 import { cx } from "@/components/ui";
+import { initials, photoUrl } from "@/lib/format";
+import type { PhotoSlot } from "@/lib/photos";
 import type { PublicKey } from "@/lib/public";
 import type { TKey } from "@/lib/i18n";
+import { type Accent, SOCIALS, type Showable } from "@/lib/site-config";
 
-const VOLT = "#c8f23c";
+/** Accent at an opacity, for CSS that blends colours (spotlights, glows); follows Admin → More → Brand. */
+const glow = (pct: number) => `color-mix(in srgb, var(--color-volt) ${pct}%, transparent)`;
 
 export type LandingProps = {
   info: Record<PublicKey, string>;
+  photos: Record<PhotoSlot, string>; // Cloudinary URLs, "" = not uploaded yet
+  todayLabel: string; // e.g. "Saturday, 24 October", formatted on the server in the visitor's language
+  year: number;
   fee: number; // rupees
   signedIn: { href: string } | null;
+  /** From Admin → More: owner name, accent, homepage background, which sections show, social links. */
+  site: { ownerName: string; accent: Accent; heroBg: string; show: Record<Showable, boolean>; social: Record<(typeof SOCIALS)[number], string> };
 };
 
-export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: string }) {
+export function Landing({ info, photos, fee, signedIn, todayLabel, year, site }: LandingProps) {
   const { t, lang } = useI18n();
+  const VOLT = site.accent.volt; // canvas and WebGL need a real colour, not the CSS variable
+  const show = site.show;
+  const socials = SOCIALS.filter((s) => site.social[s]);
   const latin = lang === "en";
   const words = t("publicSite.heroWords").split("|");
+  const gallery = [photos.g1, photos.g2, photos.g3, photos.g4];
   const phone = info.phone.replace(/[^\d+]/g, "");
   const wa = info.whatsapp.replace(/\D/g, "");
 
@@ -49,7 +62,7 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
           <nav aria-label={t("nav.mainNav")} className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-4 sm:gap-3 sm:px-6">
             <Wordmark dark compact />
             <ul className="ml-6 hidden gap-1 lg:flex">
-              {(["about", "membership", "trainer", "visit"] as const).map((k) => (
+              {(["about", "membership", "trainer", "visit"] as const).filter((k) => show[k]).map((k) => (
                 <li key={k}>
                   <a href={`#${k}`} className="rounded-full px-3.5 py-2 text-[15px] font-medium text-sand-0/70 transition hover:bg-white/5 hover:text-sand-0">
                     {t(`publicSite.nav.${k}`)}
@@ -81,7 +94,7 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
           {/* ─────────────── hero ─────────────── */}
           <section className="relative isolate flex min-h-[calc(100dvh-4rem)] flex-col overflow-hidden">
             <div aria-hidden className="absolute inset-0 -z-10">
-              <HeroBackground variant={bg} />
+              <HeroBackground variant={site.heroBg} accent={site.accent} />
               {/* Keep the headline side calm so the strands never fight the text. */}
               <div className="absolute inset-0 bg-[linear-gradient(90deg,rgb(18_18_16/0.88)_0%,rgb(18_18_16/0.6)_60%,rgb(18_18_16/0.3)_100%)] lg:bg-[linear-gradient(90deg,rgb(18_18_16/0.75)_0%,rgb(18_18_16/0.35)_45%,transparent_75%)]" />
               <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-ink-950" />
@@ -126,7 +139,7 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
 
               <div className="mt-9 flex flex-wrap items-center gap-3">
                 <Magnet padding={60} magnetStrength={4} maxOffset={14}>
-                  <StarBorder as={Link} href="/register" color={VOLT} radius={18} thickness={1.5} stars={2} backgroundColor="#c8f23c" textColor="#121210" borderColor="rgba(18,18,16,0.25)" className="min-h-14 px-7 text-[18px] font-bold">
+                  <StarBorder as={Link} href="/register" color={VOLT} radius={18} thickness={1.5} stars={2} backgroundColor={VOLT} textColor="#121210" borderColor="rgba(18,18,16,0.25)" className="min-h-14 px-7 text-[18px] font-bold">
                     {t("publicSite.join")}
                     <ArrowRight className="size-5" aria-hidden />
                   </StarBorder>
@@ -150,7 +163,7 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
               </div>
             </div>
 
-            <a href="#about" className="absolute bottom-6 left-1/2 hidden -translate-x-1/2 flex-col items-center gap-1 text-[12px] font-semibold uppercase tracking-[0.2em] text-sand-0/50 transition hover:text-sand-0 sm:flex">
+            <a href={show.about ? "#about" : "#main"} className="absolute bottom-6 left-1/2 hidden -translate-x-1/2 flex-col items-center gap-1 text-[12px] font-semibold uppercase tracking-[0.2em] text-sand-0/50 transition hover:text-sand-0 sm:flex">
               {t("publicSite.scroll")}
               <ArrowDown className="size-4 motion-safe:animate-bounce" aria-hidden />
             </a>
@@ -169,6 +182,7 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
           </section>
 
           {/* ─────────────── about ─────────────── */}
+          {show.about && (
           <section id="about" className="relative mx-auto max-w-6xl scroll-mt-20 px-4 py-28 sm:px-6 sm:py-36">
             <Label>{t("publicSite.aboutLabel")}</Label>
             {info.about ? (
@@ -181,13 +195,15 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
               </Placeholder>
             )}
           </section>
+          )}
 
           {/* ─────────────── membership ─────────────── */}
+          {show.membership && (
           <section id="membership" className="relative mx-auto max-w-6xl scroll-mt-20 px-4 pb-28 sm:px-6">
             <Label>{t("publicSite.membershipLabel")}</Label>
             <h2 className="mt-4 font-display text-[clamp(2.6rem,7vw,5.5rem)] font-black uppercase leading-[0.9]">{t("publicSite.membershipTitle")}</h2>
             <div className="mt-10 grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-              <SpotlightCard spotlightColor="rgba(200, 242, 60, 0.28)" theme="dark" className="rounded-[28px] p-7 sm:p-10">
+              <SpotlightCard spotlightColor={glow(28)} theme="dark" className="rounded-[28px] p-7 sm:p-10">
                 <p className="text-[15px] font-semibold uppercase tracking-[0.14em] text-sand-0/60">{t("publicSite.monthly")}</p>
                 <p className="mt-3 flex items-start font-display font-black leading-[0.8] text-volt">
                   <span className="mt-[0.12em] text-[clamp(3rem,8vw,5rem)]">₹</span>
@@ -214,8 +230,10 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
               </div>
             </div>
           </section>
+          )}
 
           {/* ─────────────── app ─────────────── */}
+          {show.app && (
           <section className="relative overflow-hidden border-y border-white/10 bg-[#161613] py-28">
             <div aria-hidden className="pointer-events-none absolute -left-40 top-20 size-[520px] rounded-full bg-volt/10 blur-[140px]" />
             <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
@@ -231,25 +249,29 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
               </div>
             </div>
           </section>
+          )}
 
           {/* ─────────────── trainer ─────────────── */}
+          {show.trainer && (
           <section id="trainer" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-28 sm:px-6">
             <Label>{t("publicSite.trainerLabel")}</Label>
             <div className="mt-10 grid items-center gap-10 md:grid-cols-[minmax(0,420px)_1fr]">
-              <TiltedCard containerHeight="460px" imageHeight="460px" imageWidth="100%" containerWidth="100%" rotateAmplitude={10} scaleOnHover={1.04} glare={0.35} radius={28} floating>
-                <div className="relative flex size-full flex-col justify-between overflow-hidden rounded-[28px] bg-[linear-gradient(160deg,#2a2b22_0%,#121210_60%)] p-6">
-                  <div aria-hidden className="absolute -right-16 -top-16 size-72 rounded-full bg-volt/25 blur-3xl" />
-                  <span className="relative inline-flex w-fit items-center gap-1.5 rounded-full bg-black/40 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-sand-0/80">
-                    <ImageIcon className="size-3.5" aria-hidden />
-                    {t("publicSite.photoSoon")}
-                  </span>
-                  <span className="relative font-display text-[150px] font-black leading-none text-volt/90">BG</span>
-                </div>
+              <TiltedCard containerHeight="460px" imageHeight="460px" imageWidth="100%" containerWidth="100%" rotateAmplitude={10} scaleOnHover={1.04} glare={0.35} radius={28} floating imageSrc={photos.trainer ? photoUrl(photos.trainer, "wide") : undefined} altText={site.ownerName}>
+                {!photos.trainer && (
+                  <div className="relative flex size-full flex-col justify-between overflow-hidden rounded-[28px] bg-[linear-gradient(160deg,#2a2b22_0%,#121210_60%)] p-6">
+                    <div aria-hidden className="absolute -right-16 -top-16 size-72 rounded-full bg-volt/25 blur-3xl" />
+                    <span className="relative inline-flex w-fit items-center gap-1.5 rounded-full bg-black/40 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-sand-0/80">
+                      <ImageIcon className="size-3.5" aria-hidden />
+                      {t("publicSite.photoSoon")}
+                    </span>
+                    <span className="relative font-display text-[150px] font-black leading-none text-volt/90">{initials(site.ownerName)}</span>
+                  </div>
+                )}
               </TiltedCard>
               <div>
                 <p className="text-[15px] font-semibold uppercase tracking-[0.14em] text-volt">{t("publicSite.trainerRole")}</p>
                 <h2 className="mt-2 font-display text-[clamp(3rem,9vw,7rem)] font-black uppercase leading-[0.85]">
-                  <DecryptedText text="Bharat Gite" animateOn="view" sequential revealDirection="start" speed={45} className="text-sand-0" encryptedClassName="text-volt/70" />
+                  <DecryptedText text={site.ownerName} animateOn="view" sequential revealDirection="start" speed={45} className="text-sand-0" encryptedClassName="text-volt/70" />
                 </h2>
                 {info.trainer ? (
                   <p className="mt-6 max-w-xl whitespace-pre-line text-[19px] leading-relaxed text-sand-0/80">{info.trainer}</p>
@@ -261,25 +283,36 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
               </div>
             </div>
           </section>
+          )}
 
           {/* ─────────────── gallery placeholders ─────────────── */}
+          {show.gallery && (
           <section className="mx-auto max-w-6xl px-4 pb-28 sm:px-6">
             <Label>{t("publicSite.galleryLabel")}</Label>
-            <p className="mt-3 text-sand-0/60">{t("publicSite.galleryNote")}</p>
+            {!gallery.every(Boolean) && <p className="mt-3 text-sand-0/60">{t("publicSite.galleryNote")}</p>}
             <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className={cx("group relative grid place-items-center overflow-hidden rounded-[22px] border border-dashed border-white/15 bg-white/[0.03]", i === 0 ? "col-span-2 row-span-2 aspect-square md:aspect-auto" : "aspect-square")}>
-                  <div aria-hidden className="absolute inset-0 bg-[repeating-linear-gradient(135deg,transparent_0_14px,rgba(255,255,255,0.025)_14px_28px)] transition-transform duration-700 group-hover:scale-110" />
-                  <span className="relative flex flex-col items-center gap-2 text-center text-[13px] font-semibold uppercase tracking-[0.12em] text-sand-0/45">
-                    <ImageIcon className="size-6" aria-hidden />
-                    {t("publicSite.photoSoon")}
-                  </span>
+              {gallery.map((src, i) => (
+                <div key={i} className={cx("group relative grid place-items-center overflow-hidden rounded-[22px] bg-white/[0.03]", !src && "border border-dashed border-white/15", i === 0 ? "col-span-2 row-span-2 aspect-square md:aspect-auto" : "aspect-square")}>
+                  {src ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- Cloudinary already resizes and converts via the URL
+                    <img src={photoUrl(src, "wide")} alt={t("publicSite.galleryAlt")} loading="lazy" className="absolute inset-0 size-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                  ) : (
+                    <>
+                      <div aria-hidden className="absolute inset-0 bg-[repeating-linear-gradient(135deg,transparent_0_14px,rgba(255,255,255,0.025)_14px_28px)] transition-transform duration-700 group-hover:scale-110" />
+                      <span className="relative flex flex-col items-center gap-2 text-center text-[13px] font-semibold uppercase tracking-[0.12em] text-sand-0/45">
+                        <ImageIcon className="size-6" aria-hidden />
+                        {t("publicSite.photoSoon")}
+                      </span>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
           </section>
+          )}
 
           {/* ─────────────── visit ─────────────── */}
+          {show.visit && (
           <section id="visit" className="mx-auto max-w-6xl scroll-mt-20 px-4 pb-28 sm:px-6">
             <Label>{t("publicSite.visitLabel")}</Label>
             <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -299,7 +332,19 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
               <ContactButton href={phone ? `tel:${phone}` : null} icon={Phone} label={t("publicSite.callUs")} tbc={t("publicSite.numberTbc")} />
               <ContactButton href={wa ? `https://wa.me/${wa.length === 10 ? `91${wa}` : wa}` : null} icon={MessageCircle} label={t("publicSite.whatsappUs")} tbc={t("publicSite.numberTbc")} wa />
             </div>
+            {socials.length > 0 && (
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {socials.map((s) => (
+                  <li key={s}>
+                    <a href={site.social[s]} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/15 px-5 font-semibold text-sand-0 transition hover:border-white/40 hover:bg-white/5">
+                      {t(`site.fields.${s}`)} <ExternalLink className="size-4 text-volt" aria-hidden />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
+          )}
 
           {/* ─────────────── final CTA ─────────────── */}
           <section className="relative overflow-hidden border-t border-white/10 px-4 py-28 text-center sm:py-36">
@@ -325,7 +370,18 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
             <Wordmark dark />
             <LangSwitcher dark />
-            <p className="w-full text-[13px] text-sand-0/45 sm:w-auto">© {new Date().getFullYear()} {t("publicSite.footer")}</p>
+            {socials.length > 0 && (
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[14px] font-semibold">
+                {socials.map((s) => (
+                  <li key={s}>
+                    <a href={site.social[s]} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sand-0/70 hover:text-sand-0">
+                      {t(`site.fields.${s}`)}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="w-full text-[13px] text-sand-0/45 sm:w-auto">© {year} {t("publicSite.footer")}</p>
           </div>
         </footer>
       </div>
@@ -339,7 +395,7 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
         {keys.map((k) => {
           const Icon = icons[k];
           return (
-            <SpotlightCard key={k} spotlightColor="rgba(200, 242, 60, 0.22)" theme="dark" className="rounded-[24px] p-6">
+            <SpotlightCard key={k} spotlightColor={glow(22)} theme="dark" className="rounded-[24px] p-6">
               <span className="grid size-12 place-items-center rounded-[14px] bg-volt text-ink-950">
                 <Icon className="size-6" aria-hidden />
               </span>
@@ -354,12 +410,12 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
 
   function PhoneMock() {
     return (
-      <div aria-hidden className="mx-auto w-[260px] rounded-[44px] border border-white/15 bg-black p-3 shadow-[0_40px_120px_-30px_rgba(200,242,60,0.35)]">
+      <div aria-hidden className="mx-auto w-[260px] rounded-[44px] border border-white/15 bg-black p-3 shadow-[0_40px_120px_-30px_color-mix(in_srgb,var(--color-volt)_35%,transparent)]">
         <div className="overflow-hidden rounded-[34px] bg-sand-100 text-ink-950">
           <div className="mx-auto mt-2 h-5 w-24 rounded-full bg-black" />
           <div className="px-4 pb-5 pt-4">
-            <p className="text-[11px] font-medium text-ink-500">Saturday, 24 October</p>
-            <p className="font-display text-[24px] font-extrabold uppercase leading-[0.95]">Welcome back, Krish</p>
+            <p className="text-[11px] font-medium text-ink-500">{todayLabel}</p>
+            <p className="font-display text-[24px] font-extrabold leading-[1]">{t("member.welcome", { name: "Krish" })}</p>
             <div className="mt-3 rounded-[20px] bg-ink-950 p-4 text-sand-0">
               <div className="flex items-center gap-3">
                 <svg viewBox="0 0 80 80" className="size-[74px] -rotate-90">
@@ -367,19 +423,19 @@ export function Landing({ info, fee, signedIn, bg }: LandingProps & { bg?: strin
                   <circle cx="40" cy="40" r="33" fill="none" strokeWidth="9" strokeLinecap="round" stroke={VOLT} strokeDasharray="207" className="landing-ring" />
                 </svg>
                 <div>
-                  <p className="text-[10px] text-sand-0/70">Monthly goal: 12 visits</p>
-                  <p className="font-display text-[18px] font-bold uppercase leading-tight">7 of 12 completed</p>
+                  <p className="text-[10px] text-sand-0/70">{t("member.monthlyGoal", { n: 12 })}</p>
+                  <p className="font-display text-[18px] font-bold leading-tight">{t("member.progress", { done: 7, target: 12 })}</p>
                 </div>
               </div>
               <div className="mt-3 flex h-9 items-center justify-center gap-1.5 rounded-[10px] bg-volt text-[13px] font-semibold text-ink-950">
-                <CalendarCheck2 className="size-4" /> Check in
+                <CalendarCheck2 className="size-4" /> {t("member.checkIn")}
               </div>
             </div>
             <div className="mt-3 flex items-center gap-2 rounded-[16px] bg-white p-3 text-[12px] font-semibold text-ok">
-              <CheckCircle2 className="size-4" /> All paid up. Thank you!
+              <CheckCircle2 className="size-4" /> {t("member.feesClear")}
             </div>
             <div className="mt-2 flex items-center gap-2 rounded-[16px] bg-white p-3 text-[12px] font-semibold">
-              <LifeBuoy className="size-4 text-info" /> Need help with my routine
+              <LifeBuoy className="size-4 text-info" /> {t("member.needHelp")}
             </div>
           </div>
         </div>
@@ -415,7 +471,7 @@ function Tbc() {
 
 function InfoCard({ icon: Icon, title, children }: { icon: typeof Clock; title: string; children: React.ReactNode }) {
   return (
-    <SpotlightCard spotlightColor="rgba(200, 242, 60, 0.18)" theme="dark" className="rounded-[24px] p-6 sm:p-8">
+    <SpotlightCard spotlightColor={glow(18)} theme="dark" className="rounded-[24px] p-6 sm:p-8">
       <p className="flex items-center gap-2 text-[14px] font-semibold uppercase tracking-[0.14em] text-sand-0/55">
         <Icon className="size-4 text-volt" aria-hidden />
         {title}

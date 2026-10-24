@@ -9,14 +9,17 @@ import { helpRequests } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Help requests" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("help.adminTitle") };
+}
 
 export default async function HelpPage() {
   await requireAdmin();
   const { t } = await getT();
   const today = todayIST();
-  const open = helpRequests(true);
-  const done = helpRequests(false);
+  const open = await helpRequests(true);
+  const done = await helpRequests(false);
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title={t("help.adminTitle")} sub={t("help.adminSub")} back={{ href: "/admin/inbox", label: t("nav.inbox") }} />
@@ -27,7 +30,7 @@ export default async function HelpPage() {
           {open.map((h) => (
             <Card as="li" key={h.id} className="p-4">
               <div className="flex items-start gap-3">
-                <Avatar name={h.name} size="sm" />
+                <Avatar name={h.name} photo={h.photo} size="sm" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <Link href={`/admin/members/${h.member_id}`} className="font-semibold text-ink-950 hover:underline">

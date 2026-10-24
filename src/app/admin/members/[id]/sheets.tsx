@@ -193,12 +193,9 @@ function ChargeFields({ state, memberId }: { state: Parameters<typeof useFieldEr
 
 export type StatusCharge = { month: string; outstanding: number; paid: number };
 
-export function StatusSheet({ memberId, current, months, charges, billingStart }: { memberId: number; current: MemberStatus; months: string[]; charges: StatusCharge[]; billingStart: string }) {
-  const { t, lang } = useI18n();
+export function StatusSheet(props: { memberId: number; current: MemberStatus; months: string[]; charges: StatusCharge[]; billingStart: string; thisMonth: string }) {
+  const { t } = useI18n();
   const done = useRefresh();
-  const [status, setStatus] = useState<MemberStatus>(current === "active" ? "paused" : "active");
-  const [month, setMonth] = useState(months.find((m) => m >= billingStart) ?? months[0]);
-  const affected = status === "active" ? [] : charges.filter((c) => c.month >= month && c.outstanding > 0);
   return (
     <Sheet
       title={t("memberDetail.changeStatus")}
@@ -208,56 +205,66 @@ export function StatusSheet({ memberId, current, months, charges, billingStart }
         </button>
       )}
     >
-      {(close) => (
-        <SheetForm action={setStatusAction} successMessage={t("settings.saved")} onDone={() => (close(), done())}>
-          {(state) => (
-            <>
-              <input type="hidden" name="memberId" value={memberId} />
-              <FormError state={state} fields={[]} />
-              <Segmented
-                name="status"
-                legend={t("common.status")}
-                value={status}
-                onChange={(v) => setStatus(v as MemberStatus)}
-                options={(["active", "paused", "left"] as const).map((s) => ({ value: s, label: t(`memberStatus.${s}`) }))}
-              />
-              <Field label={t("memberDetail.effectiveMonth")} htmlFor="s-month">
-                <select id="s-month" name="effectiveMonth" value={month} onChange={(e) => setMonth(e.target.value)} className={inputCls}>
-                  {months.filter((m) => m >= billingStart).map((m) => (
-                    <option key={m} value={m}>
-                      {fmtMonth(m, lang, "long")}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {status === "active" ? (
-                <Notice tone="info">{t("memberDetail.statusResumeNote")}</Notice>
-              ) : affected.length ? (
-                <Notice tone="warn">
-                  <p className="font-semibold">{t("memberDetail.statusPreviewWaive")}</p>
-                  <ul className="mt-1 list-inside list-disc">
-                    {affected.map((c) => (
-                      <li key={c.month}>
-                        {fmtMonth(c.month, lang)} — {money(c.outstanding, lang)}
-                      </li>
-                    ))}
-                  </ul>
-                  {affected.some((c) => c.paid > 0) && <p className="mt-1">{t("memberDetail.statusPreviewPaid")}</p>}
-                </Notice>
-              ) : (
-                <Notice tone="ok">{t("memberDetail.statusPreviewNone")}</Notice>
-              )}
-              <Field label={t("common.reason")} htmlFor="s-reason" optional optionalLabel={t("common.optional")}>
-                <input id="s-reason" name="reason" className={inputCls} maxLength={200} />
-              </Field>
-              <SubmitButton pendingLabel={t("common.saving")} variant="dark">
-                {t("common.confirm")}
-              </SubmitButton>
-            </>
-          )}
-        </SheetForm>
-      )}
+      {(close) => <StatusBody {...props} onDone={() => (close(), done())} />}
     </Sheet>
+  );
+}
+
+/** Mounted only while the sheet is open, so every opening starts from this month and the opposite status. */
+function StatusBody({ memberId, current, months, charges, billingStart, thisMonth, onDone }: { memberId: number; current: MemberStatus; months: string[]; charges: StatusCharge[]; billingStart: string; thisMonth: string; onDone: () => void }) {
+  const { t, lang } = useI18n();
+  const choices = months.filter((m) => m >= billingStart);
+  const [status, setStatus] = useState<MemberStatus>(current === "active" ? "paused" : "active");
+  const [month, setMonth] = useState(choices.includes(thisMonth) ? thisMonth : (choices.at(-1) ?? thisMonth));
+  const affected = status === "active" ? [] : charges.filter((c) => c.month >= month && c.outstanding > 0);
+  return (
+    <SheetForm action={setStatusAction} successMessage={t("settings.saved")} onDone={onDone}>
+      {(state) => (
+        <>
+          <input type="hidden" name="memberId" value={memberId} />
+          <FormError state={state} fields={[]} />
+          <Segmented
+            name="status"
+            legend={t("common.status")}
+            value={status}
+            onChange={(v) => setStatus(v as MemberStatus)}
+            options={(["active", "paused", "left"] as const).map((s) => ({ value: s, label: t(`memberStatus.${s}`) }))}
+          />
+          <Field label={t("memberDetail.effectiveMonth")} htmlFor="s-month">
+            <select id="s-month" name="effectiveMonth" value={month} onChange={(e) => setMonth(e.target.value)} className={inputCls}>
+              {choices.map((m) => (
+                <option key={m} value={m}>
+                  {fmtMonth(m, lang, "long")}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {status === "active" ? (
+            <Notice tone="info">{t("memberDetail.statusResumeNote")}</Notice>
+          ) : affected.length ? (
+            <Notice tone="warn">
+              <p className="font-semibold">{t("memberDetail.statusPreviewWaive")}</p>
+              <ul className="mt-1 list-inside list-disc">
+                {affected.map((c) => (
+                  <li key={c.month}>
+                    {fmtMonth(c.month, lang)} — {money(c.outstanding, lang)}
+                  </li>
+                ))}
+              </ul>
+              {affected.some((c) => c.paid > 0) && <p className="mt-1">{t("memberDetail.statusPreviewPaid")}</p>}
+            </Notice>
+          ) : (
+            <Notice tone="ok">{t("memberDetail.statusPreviewNone")}</Notice>
+          )}
+          <Field label={t("common.reason")} htmlFor="s-reason" optional optionalLabel={t("common.optional")}>
+            <input id="s-reason" name="reason" className={inputCls} maxLength={200} />
+          </Field>
+          <SubmitButton pendingLabel={t("common.saving")} variant="dark">
+            {t("common.confirm")}
+          </SubmitButton>
+        </>
+      )}
+    </SheetForm>
   );
 }
 
@@ -366,7 +373,7 @@ export function ResetCodeSheet({ memberId, name }: { memberId: number; name: str
           state?.ok && state.data ? (
             <div className="text-center">
               <p className="text-[15px] text-ink-600">{t("memberDetail.resetIssued", { name })}</p>
-              <p className="my-3 select-all rounded-[16px] bg-ink-950 py-4 font-display text-[40px] font-extrabold tracking-[0.18em] text-volt">{state.data.code}</p>
+              <p lang="en" className="my-3 select-all rounded-[16px] bg-ink-950 py-4 font-display text-[40px] font-extrabold tracking-[0.18em] text-volt">{state.data.code}</p>
               <p className="text-[14px] text-ink-600">{t("memberDetail.resetValid", { time: fmtTime(state.data.expires, lang) })}</p>
             </div>
           ) : (

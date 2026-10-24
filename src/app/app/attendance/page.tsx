@@ -11,18 +11,21 @@ import { profile } from "@/lib/queries";
 import { requireMember } from "@/lib/session";
 import { addMonths, isMonth, todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Visits" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("attendance.title") };
+}
 
 export default async function AttendancePage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const me = await requireMember();
   const { t, lang } = await getT();
   const today = todayIST();
   const now = today.slice(0, 7);
-  const first = profile(me.id)!.billing_start_month;
+  const first = (await profile(me.id))!.billing_start_month;
   const req = (await searchParams).m ?? now;
   const month = isMonth(req) && req <= now && req >= first ? req : now;
-  const visits = visitDates(me.id, month);
-  const goal = goalFor(me.id, month);
+  const visits = await visitDates(me.id, month);
+  const goal = await goalFor(me.id, month);
   const prev = addMonths(month, -1);
   const next = addMonths(month, 1);
   const nav = (m: string, ok: boolean, label: string, Icon: typeof ChevronLeft) =>

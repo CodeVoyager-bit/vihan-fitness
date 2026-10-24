@@ -9,13 +9,16 @@ import { fmtMonth } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { requireAdmin } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Monthly challenge" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("challenge.title") };
+}
 
 export default async function ChallengePage() {
   await requireAdmin();
   const { t, lang } = await getT();
-  const c = activeChallenge();
-  const entries = c ? challengeEntries(c) : [];
+  const c = await activeChallenge();
+  const entries = c ? await challengeEntries(c) : [];
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title={t("challenge.title")} sub={t("challenge.sub")} back={{ href: "/admin/more", label: t("nav.more") }} />
@@ -41,7 +44,7 @@ export default async function ChallengePage() {
             <Card as="ul" className="divide-y divide-sand-200">
               {entries.map((e) => (
                 <li key={e.member_id} className="flex items-center gap-3 px-4 py-3">
-                  <Avatar name={e.name} size="sm" tone={e.progress.complete ? "volt" : "sand"} />
+                  <Avatar name={e.name} photo={e.photo} size="sm" tone={e.progress.complete ? "volt" : "sand"} />
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-2 font-semibold text-ink-950">
                       {e.name}

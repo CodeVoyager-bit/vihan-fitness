@@ -4,14 +4,16 @@ import { Wordmark } from "@/components/brand";
 import { CheckInButton } from "@/components/member/widgets";
 import { ButtonLink, ProgressRing } from "@/components/ui";
 import { setting } from "@/lib/db";
-import { goalFor, visitDates } from "@/lib/engage";
+import { canCheckIn, goalFor, visitDates } from "@/lib/engage";
 import { fmtWeekday } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
-import { statusAt } from "@/lib/ledger";
 import { requireMember } from "@/lib/session";
 import { todayIST } from "@/lib/time";
 
-export const metadata: Metadata = { title: "Check in" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("member.checkIn") };
+}
 
 /** Target of the QR poster at the door. Sign-in comes first, then a one-tap confirm. */
 export default async function CheckinPage({ searchParams }: { searchParams: Promise<{ k?: string }> }) {
@@ -19,10 +21,10 @@ export default async function CheckinPage({ searchParams }: { searchParams: Prom
   const me = await requireMember(`/checkin?k=${encodeURIComponent(k)}`);
   const { t, lang } = await getT();
   const today = todayIST();
-  const visits = visitDates(me.id, today.slice(0, 7));
-  const goal = goalFor(me.id);
-  const valid = k && k === setting("checkin_key");
-  const active = statusAt(me.id, today.slice(0, 7)) === "active";
+  const visits = await visitDates(me.id, today.slice(0, 7));
+  const goal = await goalFor(me.id);
+  const valid = k && k === await setting("checkin_key");
+  const active = await canCheckIn(me.id, today.slice(0, 7));
 
   return (
     <main id="main" className="dark-surface relative flex min-h-dvh flex-col items-center overflow-hidden bg-ink-950 px-5 pb-10 pt-[max(env(safe-area-inset-top),20px)] text-center text-sand-0">

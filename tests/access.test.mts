@@ -1,27 +1,34 @@
 // End-to-end access checks against a running DEMO server (server-side enforcement, not hidden UI).
 // Run: npm run dev:demo   (in another terminal), then: npm run test:access
 import assert from "node:assert/strict";
-import { before, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 process.env.APP_MODE = "demo";
+process.env.BETTER_AUTH_URL = BASE; // same address → same cookie names as the server (https ones are Secure)
 
-const { db } = await import("../src/lib/db");
-const { createSession } = await import("../src/lib/accounts");
+const { closeDb, db } = await import("../src/lib/db");
+const { authEmail, demoPassword } = await import("../src/lib/accounts");
+const { auth } = await import("../src/lib/auth");
 
-const id = (phone: string) => (db().prepare("SELECT id FROM users WHERE phone = ?").get(phone) as { id: number }).id;
 const cookie: Record<string, string> = {};
+/** Signs a seeded demo account in, the way the login form does, and keeps its session cookie. */
+async function signIn(phone: string) {
+  const { headers } = await auth().api.signInEmail({ body: { email: authEmail(phone), password: demoPassword() }, returnHeaders: true });
+  return headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+}
 
 async function get(url: string, who?: string) {
-  return fetch(BASE + url, { redirect: "manual", headers: who ? { cookie: `vf_session=${cookie[who]}` } : {} });
+  return fetch(BASE + url, { redirect: "manual", headers: who ? { cookie: cookie[who] } : {} });
 }
 const location = (r: Response) => new URL(r.headers.get("location") ?? "/", BASE).pathname;
 
-before(() => {
-  cookie.admin = createSession(id("+919000000001")).token;
-  cookie.member = createSession(id("+919000000010")).token; // Krish
-  cookie.pending = createSession(id("+919000000090")).token; // Rohan, not approved
+before(async () => {
+  cookie.admin = await signIn("+919000000001");
+  cookie.member = await signIn("+919000000010"); // Krish
+  cookie.pending = await signIn("+919000000090"); // Rohan, not approved
 });
+after(closeDb);
 
 describe("anonymous visitors", () => {
   for (const url of ["/admin", "/admin/members/2", "/app", "/app/fees", "/admin/export/payments", "/admin/export/backup"])
@@ -54,9 +61,7 @@ describe("members", () => {
     });
 
   test("member pages show only their own records", async () => {
-    const others = db()
-      .prepare("SELECT name, phone FROM users WHERE role = 'member' AND phone <> '+919000000010'")
-      .all() as { name: string; phone: string }[];
+    const others = await (await db()).users.find({ role: "member", phone: { $ne: "+919000000010" } }, { projection: { name: 1, phone: 1 } }).toArray();
     for (const url of ["/app", "/app/fees", "/app/attendance", "/app/profile", "/app/help"]) {
       const r = await get(url, "member");
       assert.equal(r.status, 200, `${url} should render for Krish`);
