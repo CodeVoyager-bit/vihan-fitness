@@ -166,10 +166,11 @@ type Docs = {
 // The rules SQLite used to enforce, as indexes. Partial filters use $type, not $exists: an explicit null
 // would otherwise count as a value and collide.
 const INDEXES: { [K in keyof Docs]: IndexDescription[] } = {
-  users: [{ key: { uid: 1 }, unique: true }, { key: { phone: 1 }, unique: true }, { key: { role: 1, status: 1 } }],
-  sessions: [],
-  accounts: [],
-  verifications: [],
+  // Better Auth's Mongo adapter creates none of its own: without these every page view scans all sessions.
+  users: [{ key: { uid: 1 }, unique: true }, { key: { phone: 1 }, unique: true }, { key: { email: 1 }, unique: true }, { key: { role: 1, status: 1 } }],
+  sessions: [{ key: { token: 1 }, unique: true }, { key: { userId: 1 } }, { key: { expiresAt: 1 }, expireAfterSeconds: 0 }],
+  accounts: [{ key: { userId: 1 } }],
+  verifications: [{ key: { identifier: 1 } }],
   counters: [],
   locks: [],
   settings: [],
@@ -392,8 +393,15 @@ const NOT_BACKED_UP = new Set(["sessions", "verifications", "rate_limits", "rese
  */
 export async function* backupLines(): AsyncGenerator<string> {
   const d = await db();
-  for (const [name, c] of Object.entries(d)) {
-    if (NOT_BACKED_UP.has(name)) continue;
-    for await (const doc of c.raw.find({})) yield BSON.EJSON.stringify({ c: name, d: doc }, { relaxed: false }) + "\n";
+  // One snapshot for every collection, so a payment saved mid-backup is in it whole (payment, allocations,
+  // counter) or not at all. The server keeps snapshots ~5 minutes; a slower backup fails instead of drifting.
+  const session = mongo().startSession({ snapshot: true });
+  try {
+    for (const [name, c] of Object.entries(d)) {
+      if (NOT_BACKED_UP.has(name)) continue;
+      for await (const doc of c.raw.find({}, { session })) yield BSON.EJSON.stringify({ c: name, d: doc }, { relaxed: false }) + "\n";
+    }
+  } finally {
+    await session.endSession();
   }
 }

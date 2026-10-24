@@ -1,7 +1,10 @@
 // Read models for screens. Every caller is already behind requireAdmin()/requireMember().
+// Loads shared by several parts of one screen go through cache(): once per page render.
+import { cache } from "react";
 import { all, db, type StatusDoc } from "./db";
 import { lastVisits } from "./engage";
-import { type ChargeRow, type MemberStatus, type Method, ledger, loadStatuses, statusRowIn, sum } from "./ledger";
+import type { OpenCharge } from "./plan";
+import { type ChargeRow, type MemberStatus, type Method, ledger, loadStatuses, screenLedger, screenStatuses, statusRowIn, sum, toOpen } from "./ledger";
 import { addMonths, currentMonth, monthOf, todayIST } from "./time";
 
 export type MonthState = "paid" | "part" | "unpaid" | "overdue" | "waived" | "none" | "notStarted";
@@ -21,6 +24,13 @@ const groupBy = <T, K>(xs: T[], key: (x: T) => K) => {
 };
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+
+const approvedMembers = cache(async () => (await db()).users.find({ role: "member", status: "approved" }).toArray());
+
+/** One member's unpaid charges in payment order, from the screen's shared ledger. */
+export async function openChargesOf(memberId: number, today = todayIST()): Promise<OpenCharge[]> {
+  return toOpen((await screenLedger()).charges.filter((c) => c.member_id === memberId), today);
+}
 
 /** The earliest status change after `month` (a scheduled pause, leave or return). */
 function nextStatus(rows: StatusDoc[] | undefined, month: string) {
@@ -42,6 +52,7 @@ export type DirRow = {
   overdue: number;
   credit: number;
   pending_claims: number;
+  pending_claim_amount: number;
   last_visit: string | null;
   m_amount: number | null;
   m_paid: number | null;
@@ -55,15 +66,15 @@ export async function directory(today = todayIST()): Promise<DirRow[]> {
   const month = monthOf(today);
   const d = await db();
   const [members, statuses, { charges, payments }, pending, visits] = await all(
-    () => d.users.find({ role: "member", status: "approved" }).toArray(),
-    () => loadStatuses(),
-    () => ledger(),
-    () => d.claims.aggregate<{ _id: number; n: number }>([{ $match: { status: "pending" } }, { $group: { _id: "$member_id", n: { $sum: 1 } } }]).toArray(),
+    () => approvedMembers(),
+    () => screenStatuses(),
+    () => screenLedger(),
+    () => d.claims.aggregate<{ _id: number; n: number; amount: number }>([{ $match: { status: "pending" } }, { $group: { _id: "$member_id", n: { $sum: 1 }, amount: { $sum: "$amount_paise" } } }]).toArray(),
     () => lastVisits(),
   );
   const chargesOf = groupBy(charges, (c) => c.member_id);
   const paymentsOf = groupBy(payments, (p) => p.member_id);
-  const claimsOf = new Map(pending.map((c) => [c._id, c.n]));
+  const claimsOf = new Map(pending.map((c) => [c._id, c]));
   return members
     .map((u): DirRow => {
       const cs = chargesOf.get(u.uid) ?? [];
@@ -83,7 +94,8 @@ export async function directory(today = todayIST()): Promise<DirRow[]> {
         outstanding: sum(cs.map((c) => c.outstanding)),
         overdue: sum(cs.filter((c) => c.due_date < today).map((c) => c.outstanding)),
         credit: sum((paymentsOf.get(u.uid) ?? []).filter((p) => !p.reversed_at).map((p) => p.unallocated_paise)),
-        pending_claims: claimsOf.get(u.uid) ?? 0,
+        pending_claims: claimsOf.get(u.uid)?.n ?? 0,
+        pending_claim_amount: claimsOf.get(u.uid)?.amount ?? 0,
         last_visit: visits.get(u.uid) ?? null,
         m_amount: m?.amount_paise ?? null,
         m_paid: m?.paid_paise ?? null,
@@ -105,12 +117,11 @@ export function monthState(r: Pick<DirRow, "status" | "billing_start_month" | "m
 
 export async function dashboard(today = todayIST()) {
   const month = monthOf(today);
-  const d = await db();
   const [{ charges, payments }, counts, members, statuses] = await all(
-    () => ledger(),
+    () => screenLedger(),
     () => inboxCounts(),
-    () => d.users.find({ role: "member", status: "approved" }, { projection: { uid: 1 } }).toArray(),
-    () => loadStatuses(),
+    () => approvedMembers(),
+    () => screenStatuses(),
   );
   const received = payments.filter((p) => !p.reversed_at && p.paid_on.startsWith(`${month}-`));
   /** Members owing something (on all charges, or only on charges past their due date). */
@@ -129,7 +140,7 @@ export async function dashboard(today = todayIST()) {
   };
 }
 
-export async function inboxCounts() {
+export const inboxCounts = cache(async () => {
   const d = await db();
   const [claims, approvals, help] = await all(
     () => d.claims.count({ status: "pending" }),
@@ -137,7 +148,7 @@ export async function inboxCounts() {
     () => d.help_requests.count({ status: "open" }),
   );
   return { claims, approvals, help };
-}
+});
 
 export type ActivityRow = { id: number; at: string; action: string; member_id: number | null; member: string | null; detail: string | null; actor: string | null; actor_role: string | null };
 
@@ -346,7 +357,7 @@ export function startMonthOptions(launch: string | undefined): string[] {
 
 /** This month's fees: what was billed (after waivers) and how much of it is paid. */
 export async function monthFees(month = currentMonth()) {
-  const cs = (await ledger()).charges.filter((c) => c.kind === "monthly" && c.period_month === month);
+  const cs = (await screenLedger()).charges.filter((c) => c.kind === "monthly" && c.period_month === month);
   return { billed: sum(cs.map((c) => c.amount_paise - c.waived_paise)), paid: sum(cs.map((c) => c.paid_paise)), charges: cs.length };
 }
 

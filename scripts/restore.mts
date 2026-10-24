@@ -14,7 +14,9 @@ const docs = new Map<string, Document[]>();
 for await (const line of readline.createInterface({ input: fs.createReadStream(file) })) {
   if (!line.trim()) continue;
   const { c, d: doc } = BSON.EJSON.parse(line, { relaxed: false }) as { c: string; d: Document };
-  docs.set(c, [...(docs.get(c) ?? []), doc]);
+  let rows = docs.get(c);
+  if (!rows) docs.set(c, (rows = []));
+  rows.push(doc);
 }
 for (const [name, rows] of docs) {
   const c = (d[name as keyof typeof d] as { raw: Collection<Document> } | undefined)?.raw;

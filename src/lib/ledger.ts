@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { revokeSessions } from "./accounts";
 import { getRules } from "./site";
 import { AppError, all, audit, type ChargeDoc, db, nextId, nowIso, type PaymentDoc, setSetting, setting, settingInt, type StatusDoc, tx } from "./db";
@@ -67,10 +68,17 @@ export async function ledger(memberId?: number) {
   };
 }
 
+/**
+ * The whole ledger and status history, loaded once per page render however many parts of the screen ask
+ * (cache() calls straight through in actions, scripts and tests, which must always read fresh).
+ */
+export const screenLedger = cache(() => ledger());
+export const screenStatuses = cache(() => loadStatuses());
+
 const byDueDesc = (a: ChargeRow, b: ChargeRow) => b.due_date.localeCompare(a.due_date) || b.id - a.id;
 
 /** Opening balances first, then oldest due; the order payments are applied in. */
-function toOpen(charges: ChargeRow[], today: string): OpenCharge[] {
+export function toOpen(charges: ChargeRow[], today: string): OpenCharge[] {
   return charges
     .filter((c) => c.outstanding > 0)
     .sort(
@@ -220,7 +228,8 @@ export async function addCharge(o: {
   periodMonth?: string | null;
   actorId: number;
 }) {
-  if (!Number.isInteger(o.amount) || o.amount <= 0 || o.amount > MAX_PAYMENT_PAISE) throw new AppError("amountInvalid", "amount");
+  if (!Number.isInteger(o.amount) || o.amount <= 0) throw new AppError("amountInvalid", "amount");
+  if (o.amount > MAX_PAYMENT_PAISE) throw new AppError("amountTooLarge", "amount");
   if (!o.description.trim()) throw new AppError("reasonRequired", "description");
   if (o.periodMonth && !isMonth(o.periodMonth)) throw new AppError("monthInvalid", "periodMonth");
   return tx(async () => {
@@ -258,14 +267,20 @@ export async function openCharges(memberId: number, today = todayIST()): Promise
 
 /** Upcoming months that have no charge yet but would be billed (used for advance payments). */
 export async function unbilledMonths(memberId: number, count = 12): Promise<FutureMonth[]> {
-  const m = await member(memberId);
-  const start = firstBillableMonth(m.billing_start_month, await setting("launch_month"));
+  const d = await db();
+  const [m, launch, monthly, fees, statusMap] = await all(
+    () => member(memberId),
+    () => setting("launch_month"),
+    () => d.charges.find({ member_id: memberId, kind: "monthly" }, { projection: { period_month: 1 } }).toArray(),
+    () => loadFees(),
+    () => loadStatuses(memberId),
+  );
+  const start = firstBillableMonth(m.billing_start_month, launch);
   if (!start) return [];
   const now = currentMonth();
   const from = start > now ? start : now;
-  const billed = new Set((await (await db()).charges.find({ member_id: memberId, kind: "monthly" }, { projection: { period_month: 1 } }).toArray()).map((r) => r.period_month));
-  const fees = await loadFees();
-  const statuses = (await loadStatuses(memberId)).get(memberId);
+  const billed = new Set(monthly.map((r) => r.period_month));
+  const statuses = statusMap.get(memberId);
   const out: FutureMonth[] = [];
   for (const month of monthsBetween(from, addMonths(now, count))) {
     if (billed.has(month) || statusRowIn(statuses, month)?.status !== "active") continue;
@@ -343,7 +358,8 @@ export type RecordPaymentInput = {
 };
 
 function checkPaymentFields(amount: number, paidOn: string, method: string) {
-  if (!Number.isInteger(amount) || amount <= 0 || amount > MAX_PAYMENT_PAISE) throw new AppError("amountInvalid", "amount");
+  if (!Number.isInteger(amount) || amount <= 0) throw new AppError("amountInvalid", "amount");
+  if (amount > MAX_PAYMENT_PAISE) throw new AppError("amountTooLarge", "amount");
   if (!isDate(paidOn) || paidOn > todayIST() || paidOn < "2020-01-01") throw new AppError("dateInvalid", "paidOn");
   if (!METHODS.includes(method as Method)) throw new AppError("methodInvalid", "method");
 }
@@ -354,7 +370,8 @@ export async function recordPayment(i: RecordPaymentInput): Promise<{ paymentId:
   return tx(async () => {
     const d = await db();
     if (i.idempotencyKey) {
-      const prev = await d.payments.findOne({ idempotency_key: i.idempotencyKey }, { projection: { member_id: 1 } });
+      // $type lets the planner use the partial unique index; a bare equality would scan every payment.
+      const prev = await d.payments.findOne({ idempotency_key: { $eq: i.idempotencyKey, $type: "string" } }, { projection: { member_id: 1 } });
       if (prev && prev.member_id !== i.memberId) throw new AppError("invalidInput");
       if (prev) return { paymentId: prev._id, duplicate: true };
     }
@@ -446,7 +463,8 @@ export async function waiveCharge(chargeId: number, amount: number, reason: stri
     const doc = await d.charges.findOne({ _id: chargeId }, { projection: { member_id: 1 } });
     const c = doc && (await ledger(doc.member_id)).charges.find((x) => x.id === chargeId);
     if (!c) throw new AppError("chargeNotFound");
-    if (!Number.isInteger(amount) || amount <= 0 || amount > c.outstanding) throw new AppError("amountInvalid", "amount");
+    if (!Number.isInteger(amount) || amount <= 0) throw new AppError("amountInvalid", "amount");
+    if (amount > c.outstanding) throw new AppError("amountOverDue", "amount");
     const id = await nextId("waivers");
     await d.waivers.insertOne({
       _id: id,
@@ -473,6 +491,8 @@ export async function reverseWaiver(waiverId: number, reason: string, actorId: n
     if (!w) throw new AppError("waiverNotFound");
     await d.waivers.updateOne({ _id: waiverId }, { $set: { reversed_at: nowIso(), reversed_by: actorId, reversal_reason: reason.trim() } });
     await audit(actorId, "waiver.reversed", { memberId: w.member_id, entity: "waiver", entityId: waiverId, detail: { reason: reason.trim() } });
+    // A paused/left month must stay waived: whatever this frees up goes back to the status waiver.
+    await reconcileStatusWaivers(w.member_id, actorId);
     await settle(w.member_id);
   });
 }

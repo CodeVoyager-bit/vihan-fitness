@@ -2,7 +2,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { type SessionUser, signOut, userForHeaders } from "./accounts";
+import { type SessionUser, ipKey, signOut, userForHeaders } from "./accounts";
 import { ensureBillingCurrent } from "./ledger";
 
 // Data access layer: every page, server action and export calls one of these guards.
@@ -52,5 +52,5 @@ export const homeFor = (u: SessionUser) => (u.role === "admin" ? "/admin" : u.st
 export async function clientIp(): Promise<string> {
   const h = await headers();
   const hops = h.get("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
-  return (hops.at(-1) || h.get("x-real-ip") || "local").slice(0, 64);
+  return ipKey((hops.at(-1) || h.get("x-real-ip") || "local").slice(0, 64));
 }

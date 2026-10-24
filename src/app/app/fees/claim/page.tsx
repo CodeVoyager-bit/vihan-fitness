@@ -17,7 +17,8 @@ export default async function ClaimPage() {
   const me = await requireMember();
   const { t, lang } = await getT();
   const bal = await balanceOf(me.id);
-  const suggested = bal.outstanding || await feeFor(currentMonth()) || 0;
+  // Money already claimed (waiting for confirmation) isn't suggested twice.
+  const suggested = Math.max(bal.outstanding - bal.pendingClaimAmount, 0) || await feeFor(currentMonth()) || 0;
   const rules = await getRules();
   const gym = (await getSite(lang)).vars.gym;
   return (

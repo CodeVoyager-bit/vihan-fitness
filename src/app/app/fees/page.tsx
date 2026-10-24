@@ -20,6 +20,7 @@ export default async function FeesPage() {
   const { t, lang } = await getT();
   const today = todayIST();
   const bal = await balanceOf(me.id, today);
+  const toPay = Math.max(bal.outstanding - bal.pendingClaimAmount, 0);
   const charges = await chargesFor(me.id);
   const payments = (await paymentsFor(me.id)).filter((p) => !p.reversed_at);
   const claims = await claimsFor(me.id);
@@ -43,7 +44,8 @@ export default async function FeesPage() {
           </div>
         </div>
         {bal.overdue > 0 && <p className="mt-2 text-[14px] font-medium text-bad">{t("fees.overdueNote", { amount: money(bal.overdue, lang) })}</p>}
-        {rules.upiId && bal.outstanding > 0 && <UpiPay id={rules.upiId} name={rules.upiName || gym} rupees={bal.outstanding / 100} note={`${gym} · ${me.name}`} />}
+        {/* Money already claimed (waiting for confirmation) isn't asked for twice. */}
+        {rules.upiId && toPay > 0 && <UpiPay id={rules.upiId} name={rules.upiName || gym} rupees={toPay / 100} note={`${gym} · ${me.name}`} />}
         <ButtonLink href="/app/fees/claim" variant={bal.outstanding ? "primary" : "secondary"} block className="mt-4">
           <Wallet className="size-5" aria-hidden />
           {t("member.iHavePaid")}

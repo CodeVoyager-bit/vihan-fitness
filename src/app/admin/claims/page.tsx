@@ -5,9 +5,10 @@ import { ConfirmClaim, LinkClaim, RejectClaim } from "./actions-ui";
 import { Avatar, Card, EmptyState, PageHeader, SectionTitle, StatusBadge } from "@/components/ui";
 import { claimReason, fmtDate, fmtMonth, money, relDay } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
-import { balanceOf, linkablePayments, openCharges, unbilledMonths } from "@/lib/ledger";
+import { all } from "@/lib/db";
+import { linkablePayments, sum, unbilledMonths } from "@/lib/ledger";
 import { planAllocation } from "@/lib/plan";
-import { claims } from "@/lib/queries";
+import { claims, openChargesOf } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { addDays, todayIST } from "@/lib/time";
 
@@ -37,12 +38,12 @@ export default async function ClaimsPage() {
       ) : (
         <ul className="space-y-3">
           {await Promise.all(pending.map(async (c) => {
-            const bal = await balanceOf(c.member_id, today);
-            const open = await openCharges(c.member_id, today);
+            const [open, future, linkable] = await all(() => openChargesOf(c.member_id, today), () => unbilledMonths(c.member_id), () => linkablePayments(c.member_id));
+            const outstanding = sum(open.map((o) => o.outstanding));
             for (const o of open) openById.set(o.id, o);
-            const plan = planAllocation(c.amount_paise, open, await unbilledMonths(c.member_id));
+            const plan = planAllocation(c.amount_paise, open, future);
             // Possible duplicates: recorded payments not yet tied to a claim, within a week of the claimed date.
-            const matches = (await linkablePayments(c.member_id)).filter((p) => p.amount_paise === c.amount_paise && p.paid_on >= addDays(c.paid_on, -7) && p.paid_on <= addDays(c.paid_on, 7));
+            const matches = linkable.filter((p) => p.amount_paise === c.amount_paise && p.paid_on >= addDays(c.paid_on, -7) && p.paid_on <= addDays(c.paid_on, 7));
             return (
               <Card as="li" key={c.id} className="p-4">
                 <div className="flex items-start gap-3">
@@ -60,7 +61,7 @@ export default async function ClaimsPage() {
                     </p>
                     {c.note && <p className="mt-1 text-[14px] italic text-ink-600">“{c.note}”</p>}
                     <p className="mt-1 text-[13px] text-ink-500">
-                      {t("claims.submitted", { when: relDay(c.created_at, today, t) })} · {bal.outstanding ? t("pay.owes", { amount: money(bal.outstanding, lang) }) : t("pay.nothingOwed")}
+                      {t("claims.submitted", { when: relDay(c.created_at, today, t) })} · {outstanding ? t("pay.owes", { amount: money(outstanding, lang) }) : t("pay.nothingOwed")}
                     </p>
                   </div>
                 </div>
@@ -89,7 +90,7 @@ export default async function ClaimsPage() {
                       ...plan.lines.map((l) => [label(l.month, l.chargeId), money(l.amount, lang)] as [string, string]),
                       ...(plan.credit ? ([[t("pay.credit"), money(plan.credit, lang)]] as [string, string][]) : []),
                     ]}
-                    balanceAfter={money(Math.max(bal.outstanding - plan.lines.filter((l) => l.chargeId).reduce((s, l) => s + l.amount, 0), 0), lang)}
+                    balanceAfter={money(Math.max(outstanding - plan.lines.filter((l) => l.chargeId).reduce((s, l) => s + l.amount, 0), 0), lang)}
                   />
                 </div>
               </Card>

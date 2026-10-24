@@ -463,9 +463,54 @@ describe("bug bash regressions", () => {
     assert.equal(await L.feeFor(addMonths(PREV2, -1)), FEE);
     void id;
   });
+
+  test("undoing an admin waiver on a paused month keeps the month waived", async () => {
+    const id = await newMember(NOW);
+    const c = (await L.openCharges(id))[0];
+    await L.waiveCharge(c.id, 10_000, "Discount", admin);
+    await L.setMemberStatus(id, "paused", NOW, null, admin);
+    assert.equal((await bal(id)).outstanding, 0);
+    const w = (await (await db()).waivers.findOne({ charge_id: c.id, source: "admin" }))!;
+    await L.reverseWaiver(w._id, "Entered by mistake", admin);
+    assert.equal((await bal(id)).outstanding, 0);
+  });
+
+  test("too-large amounts say what's wrong instead of 'enter more than ₹0'", async () => {
+    const id = await newMember(NOW);
+    const c = (await L.openCharges(id))[0];
+    await assert.rejects(async () => L.waiveCharge(c.id, FEE + 100, "Too much", admin), /amountOverDue/);
+    await assert.rejects(async () => L.waiveCharge(c.id, 0, "Nothing", admin), /amountInvalid/);
+    await assert.rejects(async () => L.recordPayment({ memberId: id, amount: L.MAX_PAYMENT_PAISE + 1, paidOn: todayIST(), method: "cash", actorId: admin }), /amountTooLarge/);
+  });
+
+  test("a payment saved while a backup runs is in it whole or not at all", async () => {
+    const id = await newMember(NOW);
+    const lines = backupLines();
+    await lines.next(); // the backup has started reading
+    const { paymentId } = await L.recordPayment({ memberId: id, amount: FEE, paidOn: todayIST(), method: "cash", actorId: admin });
+    const rows: { c: string; d: Record<string, unknown> }[] = [];
+    for await (const line of lines) rows.push(BSON.EJSON.parse(line, { relaxed: false }) as { c: string; d: Record<string, unknown> });
+    assert.equal(rows.some((r) => r.c === "payments" && Number(r.d._id) === paymentId), false);
+    assert.equal(rows.some((r) => r.c === "allocations" && Number(r.d.payment_id) === paymentId), false);
+    const counter = rows.find((r) => r.c === "counters" && r.d._id === "payments");
+    assert.ok(!counter || Number(counter.d.seq) < paymentId);
+  });
 });
 
 describe("security regressions", () => {
+  test("post-login redirects stay on this site", () => {
+    for (const bad of ["//evil.example", "/.//evil.example/login", "/..//evil.example", "/a/..//evil.example", "/%2e//evil.example", "/\\evil.example", "/\t/evil.example", "https://evil.example"])
+      assert.equal(A.safeNext(bad), null, bad);
+    assert.equal(A.safeNext("/checkin?k=abc"), "/checkin?k=abc");
+  });
+
+  test("rate limits count an IPv6 client by its /64, so hopping addresses doesn't reset them", () => {
+    assert.equal(A.ipKey("2405:201:abcd:12:1111:2222:3333:4444"), A.ipKey("2405:201:ABCD:12::9"));
+    assert.notEqual(A.ipKey("2405:201:abcd:12::1"), A.ipKey("2405:201:abcd:13::1"));
+    assert.equal(A.ipKey("::ffff:10.0.0.1"), "10.0.0.1");
+    assert.equal(A.ipKey("203.0.113.7"), "203.0.113.7");
+  });
+
   test("changing the password signs out every other session", async () => {
     const id = await A.registerMember({ name: "Sessions", phone: "9000000006", password: "secretpass1", language: "en" });
     const laptop = await signedIn("9000000006", "secretpass1");

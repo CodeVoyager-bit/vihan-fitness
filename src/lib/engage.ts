@@ -1,6 +1,7 @@
+import { cache } from "react";
 import { AppError, all, audit, db, inMonth, nextId, nowIso, settingInt, tx } from "./db";
 import { getRules } from "./site";
-import { loadStatuses, statusAt, statusRowIn } from "./ledger";
+import { screenStatuses, statusAt, statusRowIn } from "./ledger";
 import { addDays, currentMonth, daysBetween, isDate, istDate, todayIST } from "./time";
 
 // ───────────────────────────── attendance ─────────────────────────────
@@ -46,10 +47,14 @@ export async function lastVisit(memberId: number): Promise<string | null> {
 }
 
 /** Latest visit date per member. */
-export async function lastVisits(): Promise<Map<number, string>> {
-  const rows = await (await db()).attendance.aggregate<{ _id: number; last: string }>([{ $group: { _id: "$member_id", last: { $max: "$visit_date" } } }]).toArray();
+/** Each member's latest recorded visit. Screens only; loaded once per page render. */
+export const lastVisits = cache(async (): Promise<Map<number, string>> => {
+  // Sorted along the (member_id, visit_date) index, so the server reads one entry per member, not every visit.
+  const rows = await (await db()).attendance
+    .aggregate<{ _id: number; last: string }>([{ $sort: { member_id: -1, visit_date: -1 } }, { $group: { _id: "$member_id", last: { $first: "$visit_date" } } }])
+    .toArray();
   return new Map(rows.map((r) => [r._id, r.last]));
-}
+});
 
 // ───────────────────────────── goals ─────────────────────────────
 
@@ -80,7 +85,7 @@ export async function followUpCandidates(today = todayIST()): Promise<FollowUp[]
     () => settingInt("inactivity_days", 8),
     () => settingInt("followup_cooldown_days", 7),
     () => d.users.find({ role: "member", status: "approved", followup_opt_in: 1 }).toArray(),
-    () => loadStatuses(),
+    () => screenStatuses(),
     () => lastVisits(),
     async () =>
       new Map(

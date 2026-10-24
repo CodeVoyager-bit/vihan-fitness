@@ -7,10 +7,9 @@ import { isDemo, settingInt } from "@/lib/db";
 import { followUpCandidates } from "@/lib/engage";
 import { fmtMonths, money, relDay } from "@/lib/format";
 import { allT, getT } from "@/lib/i18n/server";
-import { balanceOf, openCharges } from "@/lib/ledger";
 import { attendanceMessages, feeMessages } from "@/lib/messages";
 import { waNumber } from "@/lib/phone";
-import { directory, lastReminders } from "@/lib/queries";
+import { directory, lastReminders, openChargesOf } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { todayIST } from "@/lib/time";
 
@@ -97,7 +96,7 @@ export default async function FollowupPage({ searchParams }: { searchParams: Pro
         ) : (
           <Card as="ul" className="divide-y divide-sand-200">
             {await Promise.all(rows.map(async (r) => {
-              const open = await openCharges(r.id, today);
+              const open = await openChargesOf(r.id, today);
               const lastAt = last.get(r.id);
               return (
                 <li key={r.id} className="flex items-center gap-3 px-4 py-3">
@@ -122,7 +121,7 @@ export default async function FollowupPage({ searchParams }: { searchParams: Pro
                     messages={feeMessages(ts, r.name, r.outstanding, open.filter((c) => c.month).map((c) => c.month!), open.some((c) => !c.month))}
                     defaultLang={r.language}
                     kind="fee"
-                    claimWarning={r.pending_claims ? t("whatsapp.claimWarning", { name: r.name.split(" ")[0], amount: money((await balanceOf(r.id, today)).pendingClaimAmount, lang) }) : null}
+                    claimWarning={r.pending_claims ? t("whatsapp.claimWarning", { name: r.name.split(" ")[0], amount: money(r.pending_claim_amount, lang) }) : null}
                     claimHref="/admin/claims"
                     lastOpenedLabel={lastAt ? t("whatsapp.lastOpened", { when: rel(lastAt) }) : t("whatsapp.neverOpened")}
                     label={`${t("memberDetail.feeReminder")}: ${r.name}`}

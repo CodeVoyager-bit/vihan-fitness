@@ -2,23 +2,10 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { authenticate, rateLimit, redeemResetCode, registerMember, signInDemo } from "@/lib/accounts";
+import { authenticate, rateLimit, redeemResetCode, registerMember, safeNext, signInDemo } from "@/lib/accounts";
 import { type Result, run, str } from "@/lib/action";
 import { AppError, isDemo } from "@/lib/db";
 import { clientIp, homeFor } from "@/lib/session";
-
-// Only same-site relative paths are allowed as post-login destinations.
-// Same-site paths only. Browsers drop tabs/newlines and treat "\\" like "/", so "/\t/evil" or
-// "/\\evil" would become protocol-relative: reject control characters and backslashes, then resolve.
-function safeNext(n: string): string | null {
-  if (!n.startsWith("/") || /[\u0000-\u001f\u007f\\]/.test(n)) return null;
-  try {
-    const u = new URL(n, "http://same.invalid");
-    return u.origin === "http://same.invalid" ? u.pathname + u.search : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function loginAction(_: Result | null, fd: FormData): Promise<Result> {
   const res = await run(async () => authenticate(str(fd, "phone"), String(fd.get("password") ?? ""), await clientIp(), await headers()), fd);

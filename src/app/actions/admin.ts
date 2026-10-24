@@ -306,7 +306,7 @@ export async function rotateCheckinAction() {
   refresh();
 }
 
-export async function runBillingAction(_: Result<number> | null): Promise<Result<number>> {
+export async function runBillingAction(): Promise<Result<number>> {
   await requireAdmin();
   return run(async () => {
     const n = await L.generateCharges();

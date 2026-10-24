@@ -4,7 +4,7 @@ import Link from "next/link";
 import { startTransition, useActionState, useMemo, useState } from "react";
 import { ArrowRight, Banknote, Check, CircleEllipsis, Hourglass, Loader2, Smartphone, SlidersHorizontal, Undo2 } from "lucide-react";
 import { type SavedPayment, recordPaymentAction } from "@/app/actions/admin";
-import { FormError, Sheet, WhatsAppSheet } from "@/components/client";
+import { FormError, Sheet, WhatsAppSheet, useFieldError } from "@/components/client";
 import { useI18n } from "@/components/i18n-provider";
 import { Avatar, ButtonLink, Card, Field, KeyValue, Notice, Segmented, btn, cx, inputCls } from "@/components/ui";
 import { fmtDate, fmtMonths, money } from "@/lib/format";
@@ -59,6 +59,7 @@ export function PaymentForm({
 }) {
   const { t, lang } = useI18n();
   const [state, action, pending] = useActionState(savePayment, null);
+  const fieldError = useFieldError(state);
   // One key per form: a double tap or a retry on a flaky connection can't save the payment twice.
   // Created when the review sheet first opens and then reused, so retries carry the same key.
   const [idemKey, setIdemKey] = useState("");
@@ -153,7 +154,7 @@ export function PaymentForm({
 
       <FormError state={state} fields={["amount", "paidOn"]} />
 
-      <Field label={t("pay.amount")} htmlFor="amount" error={!valid && amount ? t("errors.amountInvalid") : state && !state.ok && state.field === "amount" ? t("errors.amountInvalid") : null}>
+      <Field label={t("pay.amount")} htmlFor="amount" error={!valid && amount ? t("errors.amountInvalid") : fieldError("amount")}>
         <div className="relative">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-display text-[32px] font-bold text-ink-400">₹</span>
           <input

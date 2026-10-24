@@ -20,7 +20,36 @@ export const authEmail = (phone: string) => `${phone.replace(/\D/g, "")}@phone.v
 /** The Better Auth error code, if `e` is one. */
 const authCode = (e: unknown) => (isAPIError(e) ? (e.body as { code?: string } | undefined)?.code : undefined);
 
+/**
+ * A post-login destination, if it is a path on this site. Browsers drop tabs/newlines and treat "\\" like
+ * "/", and dot segments resolve away ("/.//evil" → "//evil"), so the resolved path must not start with "//".
+ */
+export function safeNext(n: string): string | null {
+  if (!n.startsWith("/") || /[\u0000-\u001f\u007f\\]/.test(n)) return null;
+  try {
+    const u = new URL(n, "http://same.invalid");
+    return u.origin === "http://same.invalid" && !u.pathname.startsWith("//") ? u.pathname + u.search : null;
+  } catch {
+    return null;
+  }
+}
+
 // ───────────────────────────── rate limiting ─────────────────────────────
+
+/**
+ * The address rate limits are counted against. An IPv6 client gets its whole /64 (one home line or one
+ * phone on Jio/Airtel), so hopping between addresses inside it doesn't reset the limits.
+ */
+export function ipKey(ip: string): string {
+  const addr = ip.replace(/%.*$/, "").toLowerCase();
+  if (!addr.includes(":")) return addr;
+  if (/^::ffff:\d+\.\d+\.\d+\.\d+$/.test(addr)) return addr.slice(7); // IPv4 written as IPv6
+  const [head, tail = ""] = addr.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
 
 /**
  * Fixed-window counter in the database. Returns false once `limit` hits within `windowSec`.
@@ -131,8 +160,8 @@ export async function registerMember(input: { name: string; phone: string; passw
 export async function authenticate(phoneInput: string, password: string, ip: string, headers?: Headers): Promise<SessionUser> {
   const phone = normalizePhone(phoneInput);
   if (!phone) throw new AppError("phoneInvalid", "phone");
-  // Guesses are limited per phone+IP (so a stranger can't lock the owner out from elsewhere), with
-  // looser caps per IP and per phone against spraying from one place or many.
+  // Guesses are limited per phone+IP (so one stranger can't lock the owner out), with looser caps per IP
+  // and per phone against spraying from one place or many.
   if (!(await rateLimit(`login:ip:${ip}`, 30, 15 * 60)) || !(await rateLimit(`login:pip:${phone}|${ip}`, 6, 15 * 60)) || !(await rateLimit(`login:phone:${phone}`, 40, 15 * 60)))
     throw new AppError("tooManyAttempts");
   try {
