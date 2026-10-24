@@ -5,17 +5,26 @@ import { photoVariant } from "@/lib/site-config";
 import { useBrand } from "./i18n-provider";
 import { cx } from "./ui";
 
-/** The uploaded logo (Admin → More → Brand), else the monogram: a bold V cut from a volt tile. */
+/** The uploaded logo (Admin → More → Brand), else a monogram: the gym's first letter on a volt tile. */
 export function Mark({ className }: { className?: string }) {
-  const { logo } = useBrand();
+  const { logo, name } = useBrand();
+  const letter = name.trim().charAt(0).toUpperCase() || "V";
   if (logo)
     // eslint-disable-next-line @next/next/no-img-element -- Cloudinary already serves the right size
     return <img src={photoVariant(logo, "c_pad,w_160,h_160")} alt="" className={cx("size-9 rounded-[11px] bg-white object-contain", className)} />;
   return (
     <svg viewBox="0 0 40 40" className={cx("size-9", className)} aria-hidden>
       <rect width="40" height="40" rx="11" className="fill-volt" />
-      <path d="M9 10h7.2l3.8 12.4L23.8 10H31l-7.6 20h-6.8z" className="fill-ink-950" />
-      <path d="M26.5 27.5h5v3h-5z" className="fill-ink-950" />
+      {letter === "V" ? (
+        <>
+          <path d="M9 10h7.2l3.8 12.4L23.8 10H31l-7.6 20h-6.8z" className="fill-ink-950" />
+          <path d="M26.5 27.5h5v3h-5z" className="fill-ink-950" />
+        </>
+      ) : (
+        <text x="20" y="29.5" textAnchor="middle" fontSize="26" fontWeight="900" className="fill-ink-950 font-display">
+          {letter}
+        </text>
+      )}
     </svg>
   );
 }

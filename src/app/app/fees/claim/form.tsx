@@ -8,7 +8,7 @@ import { useI18n } from "@/components/i18n-provider";
 import { ButtonLink, Field, Segmented, cx, inputCls } from "@/components/ui";
 import { money } from "@/lib/format";
 
-export function ClaimForm({ today, suggested }: { today: string; suggested: number }) {
+export function ClaimForm({ today, suggested, methods }: { today: string; suggested: number; methods: ("cash" | "upi" | "other")[] }) {
   const { t, lang } = useI18n();
   const [state, action] = useActionState(submitClaimAction, null);
   const err = useFieldError(state);
@@ -41,12 +41,12 @@ export function ClaimForm({ today, suggested }: { today: string; suggested: numb
       <Segmented
         name="method"
         legend={t("claimForm.method")}
-        defaultValue={kept("method", "upi")}
+        defaultValue={kept("method", methods.includes("upi") ? "upi" : methods[0])}
         options={[
           { value: "upi", label: t("methods.upi"), icon: Smartphone },
           { value: "cash", label: t("methods.cash"), icon: Banknote },
           { value: "other", label: t("methods.other"), icon: CircleEllipsis },
-        ]}
+        ].filter((o) => methods.includes(o.value as "cash" | "upi" | "other"))}
       />
       <Field label={t("claimForm.reference")} htmlFor="reference" hint={t("claimForm.referenceHint")} optional optionalLabel={t("common.optional")}>
         <input id="reference" name="reference" defaultValue={kept("reference")} maxLength={60} autoComplete="off" className={inputCls} />

@@ -4,7 +4,8 @@ import { ChevronLeft, ChevronRight, Leaf } from "lucide-react";
 import { VisitCalendar } from "@/components/calendar";
 import { GoalPicker } from "@/components/member/widgets";
 import { Bar, Card, PageHeader, SectionTitle, cx } from "@/components/ui";
-import { GOAL_OPTIONS, goalFor, visitDates } from "@/lib/engage";
+import { goalFor, visitDates } from "@/lib/engage";
+import { getRules } from "@/lib/site";
 import { fmtMonth } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { profile } from "@/lib/queries";
@@ -70,7 +71,7 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
           <SectionTitle>{t("attendance.chooseGoal")}</SectionTitle>
           <Card className="p-4">
             <p className="mb-3 text-[14px] text-ink-600">{t("attendance.chooseGoalHelp")}</p>
-            <GoalPicker options={GOAL_OPTIONS} current={goal.target} />
+            <GoalPicker options={(await getRules()).goalOptions} current={goal.target} />
           </Card>
         </>
       )}

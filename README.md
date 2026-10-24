@@ -5,7 +5,8 @@ A mobile-first web app with three parts:
 
 - **Admin** (`/admin`) — Bharat's pocket assistant: who owes what, record payments, confirm "I have paid" claims, approve registrations, WhatsApp reminders, follow-ups, exports.
 - **Member app** (`/app`) — personal visit goal, QR check-in, fees and payment history, "I have paid", help requests.
-- **Public page** (`/`) — animated landing page whose facts (timings, address, phone, trainer text…) Bharat edits in **More → Public page**. Unconfirmed facts show as clearly marked placeholders.
+- **Public page** (`/`): an animated landing page. Bharat edits it, along with everything else people see, in **More → Website & app**, with no code changes. Unconfirmed facts show as clearly marked placeholders.
+- **Admin-editable everything**: gym and owner names, logo, accent colour, page copy, contact details, WhatsApp templates, QR poster text, goal choices, checklist, limits, payment methods, UPI ID, and any other label (the "All wording" editor). Stored in the `settings` collection: `site.*` holds data and `text.<lang>.<key>` holds wording overrides. Defaults are the values in the code (`src/lib/site-config.ts`, `src/lib/i18n/*`), so a fresh database looks exactly like the shipped app. Brand names reach every text through `{gym}`/`{owner}`/`{ownerName}`/`{town}` placeholders, filled in by `makeT` (`src/lib/i18n/index.ts`).
 
 English, मराठी and हिन्दी throughout. Money changes hands outside the app (cash/UPI); the app only keeps the record.
 
@@ -81,7 +82,7 @@ npm run test:access
    It asks for the password (or reads `ADMIN_PASSWORD`). Run it again to reset the admin password.
 5. **First login → More**
    - *Billing*: choose the **launch month** (nothing is charged before it) and the due day (default 10th). The fee schedule starts at ₹500 from the launch month.
-   - *Public page*: fill in only confirmed details.
+   - *Website & app → Brand / Website / Contact*: check the names and fill in only confirmed details. Set `CLOUDINARY_URL` first if you want logo and photo uploads.
    - *QR codes*: print the check-in poster for the entrance and the registration poster.
 6. **Backups** — Atlas's free tier keeps **no backups**. Download one regularly: Bharat from **More → Export records → Full backup**, or you with `npm run backup` (writes `backups/vihan-live-<time>.jsonl`, keeps 60). Keep copies off your laptop too (e.g. Google Drive). `npm run restore -- <file>` loads a backup into an empty database.
 

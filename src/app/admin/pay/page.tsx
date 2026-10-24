@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getRules } from "@/lib/site";
 import { PaymentForm } from "./form";
 import { MemberPicker } from "./picker";
 import { PageHeader } from "@/components/ui";
@@ -55,6 +56,7 @@ export default async function PayPage({ searchParams }: { searchParams: Promise<
         outstanding={bal.outstanding}
         credit={bal.credit}
         monthFee={await feeFor(currentMonth()) ?? 0}
+        methods={(await getRules()).methods}
         claimNotice={claims.length ? t("pay.claimNotice", { name: p.name.split(" ")[0], amount: money(claims.reduce((s, c) => s + c.amount_paise, 0), lang) }) : null}
       />
     </div>

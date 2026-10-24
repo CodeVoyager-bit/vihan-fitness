@@ -7,6 +7,7 @@ import { Avatar, Badge, Bar, Card, EmptyState, PageHeader, SectionTitle } from "
 import { activeChallenge, challengeEntries } from "@/lib/engage";
 import { fmtMonth } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
+import { getRules } from "@/lib/site";
 import { requireAdmin } from "@/lib/session";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -17,13 +18,14 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ChallengePage() {
   await requireAdmin();
   const { t, lang } = await getT();
+  const { backOnTrack } = await getRules();
   const c = await activeChallenge();
   const entries = c ? await challengeEntries(c) : [];
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title={t("challenge.title")} sub={t("challenge.sub")} back={{ href: "/admin/more", label: t("nav.more") }} />
       {!c ? (
-        <EmptyState icon={Trophy} title={t("challenge.none")} action={<StartChallenge hasCurrent={false} />} />
+        <EmptyState icon={Trophy} title={t("challenge.none")} action={<StartChallenge hasCurrent={false} suggested={backOnTrack} />} />
       ) : (
         <>
           <Card className="dark-surface overflow-hidden border-0 bg-ink-950 p-5 text-sand-0">
@@ -31,7 +33,7 @@ export default async function ChallengePage() {
             <h2 className="mt-1 font-display text-[34px] font-extrabold leading-[1.05]">{t(`challenge.templates.${c.template}.title`)}</h2>
             <p className="mt-2 text-[15px] text-sand-0/80">{t(`challenge.templates.${c.template}.body`, { n: c.target_visits ?? 0, offer: c.offer_text ?? "" })}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <StartChallenge hasCurrent />
+              <StartChallenge hasCurrent suggested={backOnTrack} />
               <ConfirmAction action={endChallengeAction} fields={{ id: c.id }} label={t("challenge.end")} title={t("challenge.end")} confirmLabel={t("challenge.end")} className="min-h-12 text-sand-0 hover:bg-white/10" />
             </div>
           </Card>

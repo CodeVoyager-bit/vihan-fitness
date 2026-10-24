@@ -9,10 +9,12 @@ import { VisitCalendar } from "@/components/calendar";
 import { PhotoButtons, WhatsAppSheet } from "@/components/client";
 import { Avatar, Badge, Bar, ButtonLink, Card, EmptyState, KeyValue, Notice, SectionTitle, StatusBadge, cx } from "@/components/ui";
 import { isDemo } from "@/lib/db";
-import { ONBOARDING_ITEMS, goalFor, lastVisit, onboardingDone, visitDates } from "@/lib/engage";
+import { goalFor, lastVisit, onboardingDone, visitDates } from "@/lib/engage";
 import { claimReason, fmtDate, fmtDateTime, fmtMonth, fmtMonths, money, relDay } from "@/lib/format";
 import type { T } from "@/lib/i18n";
 import { allT, getT } from "@/lib/i18n/server";
+import { getRules } from "@/lib/site";
+import { checklistLabel } from "@/lib/site-config";
 import { balanceOf, chargesFor, statusAt } from "@/lib/ledger";
 import { attendanceMessages, feeMessages } from "@/lib/messages";
 import { photosEnabled } from "@/lib/photos";
@@ -421,7 +423,7 @@ async function ProfileTab({ id, t, lang, p, status, charges }: { id: number; t: 
 
       <SectionTitle>{t("memberDetail.onboarding")}</SectionTitle>
       <Card className="p-2">
-        <Checklist memberId={id} items={ONBOARDING_ITEMS.map((k) => ({ key: k, label: t(`member.onboardingItems.${k}`), done: done.has(k) }))} />
+        <Checklist memberId={id} items={(await getRules()).checklist.map((i) => ({ key: i.key, label: checklistLabel(i, lang, t), done: done.has(i.key) }))} />
       </Card>
 
       <SectionTitle>{t("memberDetail.account")}</SectionTitle>

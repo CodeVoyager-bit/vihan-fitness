@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/ui";
 import { getT } from "@/lib/i18n/server";
 import { balanceOf, feeFor } from "@/lib/ledger";
 import { requireMember } from "@/lib/session";
+import { getRules, getSite } from "@/lib/site";
+import { UpiPay } from "@/components/member/upi-pay";
 import { currentMonth, todayIST } from "@/lib/time";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -13,13 +15,16 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function ClaimPage() {
   const me = await requireMember();
-  const { t } = await getT();
+  const { t, lang } = await getT();
   const bal = await balanceOf(me.id);
   const suggested = bal.outstanding || await feeFor(currentMonth()) || 0;
+  const rules = await getRules();
+  const gym = (await getSite(lang)).vars.gym;
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title={t("claimForm.title")} sub={t("claimForm.sub")} back={{ href: "/app/fees", label: t("nav.fees") }} />
-      <ClaimForm today={todayIST()} suggested={suggested / 100} />
+      {rules.upiId && suggested > 0 && <UpiPay id={rules.upiId} name={rules.upiName || gym} rupees={suggested / 100} note={`${gym} · ${me.name}`} />}
+      <ClaimForm today={todayIST()} suggested={suggested / 100} methods={rules.methods} />
     </div>
   );
 }

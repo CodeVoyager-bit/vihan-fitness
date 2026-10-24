@@ -7,7 +7,6 @@ import { changePasswordAction } from "@/app/actions/member";
 import { FormError, PasswordInput, SheetForm, SubmitButton, useFieldError } from "@/components/client";
 import { useI18n } from "@/components/i18n-provider";
 import { Field, Notice, cx, inputCls } from "@/components/ui";
-import type { TKey } from "@/lib/i18n";
 
 export function BillingForm({ launch, dueDay }: { launch: string; dueDay: number }) {
   const { t } = useI18n();

@@ -64,7 +64,7 @@ function Body({ state, layout, values, vars, initialLang }: Omit<Props, "action"
           </div>
         </div>
       )}
-      <FormError state={state} fields={[]} />
+      <FormError state={state} fields={inputNames(layout)} />
       {layout.map((g) => (
         <fieldset key={g.group} className="space-y-4 border-t border-sand-200 pt-5 first-of-type:border-0 first-of-type:pt-0">
           <legend className="mb-1 font-display text-[19px] font-bold text-ink-950">{t(`site.groups.${g.group}` as TKey)}</legend>
@@ -85,6 +85,12 @@ function Body({ state, layout, values, vars, initialLang }: Omit<Props, "action"
     </>
   );
 }
+
+/** Every input the form has: their errors show under the field, not in the banner. */
+const inputNames = (layout: Props["layout"]) =>
+  layout.flatMap((g) =>
+    g.items.flatMap((item) => (isText(item) ? LANGS.map((l) => textName(l, item)) : (FIELDS[item as FieldId] as SiteField).perLang ? LANGS.map((l) => fieldName(item, l)) : [fieldName(item)])),
+  );
 
 function useHint() {
   const { t } = useI18n();

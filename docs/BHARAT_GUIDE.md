@@ -60,6 +60,22 @@ Print **More → QR codes → Check-in QR**. Members scan it, log in once, and t
 
 **More → Monthly challenge** → pick *Reach your goal*, *Back on Track* or *Bring Your Gym Buddy* (the buddy offer runs only with the offer you write and approve). Members choose to join and whether their first name is shown when they finish. No rankings.
 
+## Change the website, names, messages and rules
+
+Everything people see can be changed from **More → Website & app**. No developer needed:
+
+- **Brand**: the gym's name, what members call you ("Bharat sir"), your full name, the town, the logo, the accent colour and the homepage background. Change a name once and every screen, message and poster follows.
+- **Website**: the headline, tagline, membership points, about and trainer text, the gym photos, which sections show, and the text Google shows.
+- **Contact & hours**: phone, WhatsApp, address, map link, timings, joining charges, and Instagram/Facebook/YouTube/Google reviews links.
+- **Messages**: the WhatsApp fee reminder, attendance check-in and receipt, with a live preview. Also the QR poster text.
+- **Rules & payments**: the monthly goal choices, the first-week checklist, the limits on claims and help requests, which payment methods you take, and your **UPI ID**. With a UPI ID set, members get a "Pay via UPI" button with the amount filled in. They still tap "I have paid", and you confirm as usual.
+- **All wording**: search for any word or sentence in the app and change it.
+
+Tips:
+- Each text has **English / मराठी / हिन्दी** tabs. If you leave Marathi or Hindi blank, people see the English text.
+- Words in curly brackets, like `{name}` or `{amount}`, are filled in automatically. The app won't save a message that drops them.
+- Changed your mind? **Back to original** puts the shipped text back.
+
 ## Keep your records
 
 **More → Export records** — download Members, Charges, Payments, Claims and Attendance as Excel-friendly files, or a full backup. Do it at the end of every month and keep a copy.

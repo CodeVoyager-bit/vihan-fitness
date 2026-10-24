@@ -26,6 +26,11 @@ export const BRAND_VARS = ["gym", "gymShort", "owner", "ownerName", "town"] as c
 export type ChecklistItem = { key: string; label: Partial<Record<Lang, string>> };
 export const BUILTIN_CHECKLIST = ["meet", "goals", "equipment", "routine", "firstWeek"] as const;
 
+/** A checklist item's label: the owner's text in this language, else his English, else the standard wording. */
+export function checklistLabel(item: ChecklistItem, lang: Lang, t: (key: TKey) => string): string {
+  return item.label[lang] || item.label.en || ((BUILTIN_CHECKLIST as readonly string[]).includes(item.key) ? t(`member.onboardingItems.${item.key}` as TKey) : item.key);
+}
+
 type ByLang = Record<Lang, string>;
 const l3 = (en: string, mr = en, hi = mr): ByLang => ({ en, mr, hi });
 
@@ -169,7 +174,10 @@ export const defaultText = (lang: Lang, key: string) => lookup(DICTS[lang], key)
 export function allTextKeys(): string[] {
   const out: string[] = [];
   const walk = (o: object, prefix: string) => {
-    for (const [k, v] of Object.entries(o)) typeof v === "string" ? out.push(prefix + k) : walk(v as object, `${prefix}${k}.`);
+    for (const [k, v] of Object.entries(o)) {
+      if (typeof v === "string") out.push(prefix + k);
+      else walk(v as object, `${prefix}${k}.`);
+    }
   };
   walk(DICTS.en, "");
   return out;

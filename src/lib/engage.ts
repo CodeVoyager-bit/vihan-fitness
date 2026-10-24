@@ -1,4 +1,5 @@
 import { AppError, all, audit, db, inMonth, nextId, nowIso, settingInt, tx } from "./db";
+import { getRules } from "./site";
 import { loadStatuses, statusAt, statusRowIn } from "./ledger";
 import { addDays, currentMonth, daysBetween, isDate, istDate, todayIST } from "./time";
 
@@ -52,17 +53,16 @@ export async function lastVisits(): Promise<Map<number, string>> {
 
 // ───────────────────────────── goals ─────────────────────────────
 
-export const GOAL_OPTIONS = [4, 8, 12, 16, 20];
-export const DEFAULT_GOAL = 12;
+// Goal choices and the default goal are set in Admin → More → Rules.
 
-/** The goal chosen for this month, else the most recent earlier choice carries over. */
+/** The goal chosen for this month, else the most recent earlier choice carries over, else the gym's default. */
 export async function goalFor(memberId: number, month = currentMonth()): Promise<{ target: number; chosen: boolean }> {
   const r = await (await db()).goals.findOne({ member_id: memberId, month: { $lte: month } }, { sort: { month: -1 } });
-  return r ? { target: r.target_visits, chosen: true } : { target: DEFAULT_GOAL, chosen: false };
+  return r ? { target: r.target_visits, chosen: true } : { target: (await getRules()).defaultGoal, chosen: false };
 }
 
 export async function setGoal(memberId: number, target: number) {
-  if (!GOAL_OPTIONS.includes(target)) throw new AppError("goalInvalid");
+  if (!(await getRules()).goalOptions.includes(target)) throw new AppError("goalInvalid");
   await (await db()).goals.updateOne({ member_id: memberId, month: currentMonth() }, { $set: { target_visits: target } }, { upsert: true });
 }
 
@@ -108,15 +108,14 @@ export async function logReminderOpen(memberId: number, kind: "fee" | "attendanc
 
 // ───────────────────────────── onboarding ─────────────────────────────
 
-export const ONBOARDING_ITEMS = ["meet", "goals", "equipment", "routine", "firstWeek"] as const;
-export type OnboardingItem = (typeof ONBOARDING_ITEMS)[number];
+// The checklist items are set in Admin → More → Rules; ticks stay stored even if an item is later removed.
 
 export async function onboardingDone(memberId: number): Promise<Set<string>> {
   return new Set((await (await db()).onboarding.find({ member_id: memberId }, { projection: { item: 1 } }).toArray()).map((r) => r.item));
 }
 
 export async function toggleOnboarding(memberId: number, item: string, done: boolean, actorId: number) {
-  if (!ONBOARDING_ITEMS.includes(item as OnboardingItem)) throw new AppError("invalidInput");
+  if (!(await getRules()).checklist.some((i) => i.key === item)) throw new AppError("invalidInput");
   const d = await db();
   if (done) await d.onboarding.updateOne({ member_id: memberId, item }, { $setOnInsert: { done_at: nowIso(), done_by: actorId } }, { upsert: true });
   else await d.onboarding.deleteOne({ member_id: memberId, item });
@@ -127,7 +126,7 @@ export async function toggleOnboarding(memberId: number, item: string, done: boo
 export async function createHelpRequest(memberId: number, topic: "routine" | "general", message: string | null) {
   if (!["routine", "general"].includes(topic)) throw new AppError("invalidInput");
   const d = await db();
-  if ((await d.help_requests.count({ member_id: memberId, status: { $ne: "resolved" } })) >= 3) throw new AppError("tooManyHelpRequests");
+  if ((await d.help_requests.count({ member_id: memberId, status: { $ne: "resolved" } })) >= (await getRules()).maxHelp) throw new AppError("tooManyHelpRequests");
   const id = await nextId("help_requests");
   await d.help_requests.insertOne({
     _id: id,
@@ -211,9 +210,9 @@ export async function challengeEntry(challengeId: number, memberId: number) {
 type Progress = { target: number | null; done: number; complete: boolean };
 
 /** Progress is derived from recorded visits; buddy completion is marked by Bharat. */
-function progressOf(c: Challenge, visits: number, goal: number | null, completedAt: string | null | undefined): Progress {
+function progressOf(c: Challenge, visits: number, goal: number | null, completedAt: string | null | undefined, defaultGoal: number): Progress {
   if (c.template === "buddy") return { target: null, done: 0, complete: !!completedAt };
-  const target = c.template === "target" ? (goal ?? DEFAULT_GOAL) : c.target_visits!;
+  const target = c.template === "target" ? (goal ?? defaultGoal) : c.target_visits!;
   return { target, done: visits, complete: visits >= target };
 }
 
@@ -223,7 +222,7 @@ export async function challengeProgress(c: Challenge, memberId: number): Promise
     () => visitDates(memberId, c.month),
     () => goalFor(memberId, c.month),
   );
-  return progressOf(c, visits.length, goal.target, e?.completed_at);
+  return progressOf(c, visits.length, goal.target, e?.completed_at, goal.target);
 }
 
 export async function markBuddyComplete(challengeId: number, memberId: number, done: boolean, actorId: number) {
@@ -240,6 +239,7 @@ export async function challengeEntries(c: Challenge) {
     () => d.attendance.aggregate<{ _id: number; n: number }>([{ $match: { member_id: { $in: ids }, visit_date: inMonth(c.month) } }, { $group: { _id: "$member_id", n: { $sum: 1 } } }]).toArray(),
     () => d.goals.find({ member_id: { $in: ids }, month: { $lte: c.month } }, { sort: { month: -1 } }).toArray(),
   );
+  const { defaultGoal } = await getRules();
   const user = new Map(users.map((u) => [u.uid, u]));
   const count = new Map(visits.map((v) => [v._id, v.n]));
   const goal = new Map<number, number>();
@@ -251,7 +251,7 @@ export async function challengeEntries(c: Challenge) {
       joined_at: e.joined_at,
       name: user.get(e.member_id)?.name ?? "",
       photo: user.get(e.member_id)?.photo ?? null,
-      progress: progressOf(c, count.get(e.member_id) ?? 0, goal.get(e.member_id) ?? null, e.completed_at),
+      progress: progressOf(c, count.get(e.member_id) ?? 0, goal.get(e.member_id) ?? null, e.completed_at, defaultGoal),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

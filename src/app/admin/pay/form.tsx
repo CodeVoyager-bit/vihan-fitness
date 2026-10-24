@@ -44,6 +44,7 @@ export function PaymentForm({
   credit,
   monthFee,
   claimNotice,
+  methods,
 }: {
   member: { id: number; name: string; photo: string | null; wa: string | null; language: Lang };
   today: string;
@@ -53,6 +54,8 @@ export function PaymentForm({
   credit: number;
   monthFee: number;
   claimNotice: string | null;
+  /** Methods the owner offers (Admin → More → Rules). */
+  methods: Method[];
 }) {
   const { t, lang } = useI18n();
   const [state, action, pending] = useActionState(savePayment, null);
@@ -62,7 +65,7 @@ export function PaymentForm({
   const ensureKey = () => idemKey || setIdemKey(newKey());
   const [amount, setAmount] = useState(toRupees(outstanding > 0 ? outstanding : monthFee));
   const [paidOn, setPaidOn] = useState(today);
-  const [method, setMethod] = useState<Method>("cash");
+  const [method, setMethod] = useState<Method>(methods.includes("cash") ? "cash" : methods[0]);
   const [custom, setCustom] = useState(false);
   const [split, setSplit] = useState<Record<string, string>>({});
 
@@ -192,7 +195,7 @@ export function PaymentForm({
             { value: "cash", label: t("methods.cash"), icon: Banknote },
             { value: "upi", label: t("methods.upi"), icon: Smartphone },
             { value: "other", label: t("methods.other"), icon: CircleEllipsis },
-          ]}
+          ].filter((o) => methods.includes(o.value as Method))}
         />
       </div>
 

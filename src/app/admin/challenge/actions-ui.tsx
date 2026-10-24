@@ -9,7 +9,7 @@ import { Field, btn, cx, inputCls } from "@/components/ui";
 
 const ICONS = { target: Trophy, back_on_track: Flag, buddy: UserPlus };
 
-export function StartChallenge({ hasCurrent }: { hasCurrent: boolean }) {
+export function StartChallenge({ hasCurrent, suggested }: { hasCurrent: boolean; suggested: number }) {
   const { t } = useI18n();
   const [tpl, setTpl] = useState<"target" | "back_on_track" | "buddy">("target");
   return (
@@ -25,14 +25,14 @@ export function StartChallenge({ hasCurrent }: { hasCurrent: boolean }) {
     >
       {(close) => (
         <SheetForm action={startChallengeAction} successMessage={t("settings.saved")} onDone={close}>
-          {(state) => <Fields state={state} tpl={tpl} setTpl={setTpl} />}
+          {(state) => <Fields state={state} tpl={tpl} setTpl={setTpl} suggested={suggested} />}
         </SheetForm>
       )}
     </Sheet>
   );
 }
 
-function Fields({ state, tpl, setTpl }: { state: Parameters<typeof useFieldError>[0]; tpl: "target" | "back_on_track" | "buddy"; setTpl: (v: "target" | "back_on_track" | "buddy") => void }) {
+function Fields({ state, tpl, setTpl, suggested }: { state: Parameters<typeof useFieldError>[0]; tpl: "target" | "back_on_track" | "buddy"; setTpl: (v: "target" | "back_on_track" | "buddy") => void; suggested: number }) {
   const { t } = useI18n();
   const err = useFieldError(state);
   return (
@@ -58,7 +58,7 @@ function Fields({ state, tpl, setTpl }: { state: Parameters<typeof useFieldError
       </fieldset>
       {tpl === "back_on_track" && (
         <Field label={t("challenge.targetVisits")} htmlFor="tv">
-          <input id="tv" name="targetVisits" type="number" min={1} max={31} defaultValue={6} inputMode="numeric" className={inputCls} />
+          <input id="tv" name="targetVisits" type="number" min={1} max={31} defaultValue={suggested} inputMode="numeric" className={inputCls} />
         </Field>
       )}
       {tpl === "buddy" && (

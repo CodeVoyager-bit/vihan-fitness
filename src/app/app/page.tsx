@@ -4,9 +4,11 @@ import { ArrowRight, CheckCircle2, Hourglass, Trophy, Wallet } from "lucide-reac
 import { ChallengeJoin, CheckInButton, HelpQuick, MyChecklist } from "@/components/member/widgets";
 import { LangSwitcher } from "@/components/client";
 import { Bar, ButtonLink, Card, Notice, ProgressRing, SectionTitle, StatusBadge, cx } from "@/components/ui";
-import { ONBOARDING_ITEMS, activeChallenge, canCheckIn, challengeEntry, challengeProgress, goalFor, onboardingDone, recognitionWall, visitDates } from "@/lib/engage";
+import { activeChallenge, canCheckIn, challengeEntry, challengeProgress, goalFor, onboardingDone, recognitionWall, visitDates } from "@/lib/engage";
 import { fmtDate, fmtMonths, fmtWeekday, money } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
+import { getRules } from "@/lib/site";
+import { checklistLabel } from "@/lib/site-config";
 import { balanceOf, openCharges, statusAt } from "@/lib/ledger";
 import { requireMember } from "@/lib/session";
 import { todayIST } from "@/lib/time";
@@ -19,6 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function MemberHome() {
   const me = await requireMember();
   const { t, lang } = await getT();
+  const { checklist } = await getRules();
   const today = todayIST();
   const month = today.slice(0, 7);
   const [visits, goal, st, bal, open, challenge, done] = await Promise.all([
@@ -178,13 +181,13 @@ export default async function MemberHome() {
         </>
       )}
 
-      {done.size < ONBOARDING_ITEMS.length && (
+      {checklist.some((i) => !done.has(i.key)) && (
         <>
           <SectionTitle>
-            {t("member.onboarding")} · {done.size}/{ONBOARDING_ITEMS.length}
+            {t("member.onboarding")} · {checklist.filter((i) => done.has(i.key)).length}/{checklist.length}
           </SectionTitle>
           <Card className="p-2">
-            <MyChecklist items={ONBOARDING_ITEMS.map((k) => ({ key: k, label: t(`member.onboardingItems.${k}`), done: done.has(k) }))} />
+            <MyChecklist items={checklist.map((i) => ({ key: i.key, label: checklistLabel(i, lang, t), done: done.has(i.key) }))} />
           </Card>
         </>
       )}

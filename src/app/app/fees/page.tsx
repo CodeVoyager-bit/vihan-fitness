@@ -6,6 +6,8 @@ import { getT } from "@/lib/i18n/server";
 import { balanceOf, chargesFor } from "@/lib/ledger";
 import { claimsFor, paymentsFor } from "@/lib/queries";
 import { requireMember } from "@/lib/session";
+import { getRules, getSite } from "@/lib/site";
+import { UpiPay } from "@/components/member/upi-pay";
 import { todayIST } from "@/lib/time";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -21,6 +23,8 @@ export default async function FeesPage() {
   const charges = await chargesFor(me.id);
   const payments = (await paymentsFor(me.id)).filter((p) => !p.reversed_at);
   const claims = await claimsFor(me.id);
+  const rules = await getRules();
+  const gym = (await getSite(lang)).vars.gym;
 
   return (
     <>
@@ -39,6 +43,7 @@ export default async function FeesPage() {
           </div>
         </div>
         {bal.overdue > 0 && <p className="mt-2 text-[14px] font-medium text-bad">{t("fees.overdueNote", { amount: money(bal.overdue, lang) })}</p>}
+        {rules.upiId && bal.outstanding > 0 && <UpiPay id={rules.upiId} name={rules.upiName || gym} rupees={bal.outstanding / 100} note={`${gym} · ${me.name}`} />}
         <ButtonLink href="/app/fees/claim" variant={bal.outstanding ? "primary" : "secondary"} block className="mt-4">
           <Wallet className="size-5" aria-hidden />
           {t("member.iHavePaid")}

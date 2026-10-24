@@ -616,3 +616,143 @@ describe("hosted database: requests really run in parallel", () => {
     assert.equal((await bal(id)).pendingClaims, 2);
   });
 });
+
+describe("admin-editable site", async () => {
+  const S = await import("../src/lib/site");
+  const C = await import("../src/lib/site-config");
+  const I = await import("../src/lib/i18n");
+  const { settingsByPrefix } = await import("../src/lib/db");
+
+  /** A form as an admin page submits it: every field of that page, with `over` replacing some. */
+  async function pageForm(page: "brand" | "contact" | "messages" | "rules", over: Record<string, string | string[]> = {}) {
+    const { fields, texts } = await S.pageValues(page);
+    const fd = new FormData();
+    const put = (k: string, v: string | string[]) => (Array.isArray(v) ? v.forEach((x) => fd.append(k, x)) : fd.set(k, v));
+    for (const [id, v] of Object.entries(fields)) {
+      const f = C.FIELDS[id as keyof typeof C.FIELDS] as { type: string };
+      if (typeof v === "object") for (const l of I.LANGS) put(`f.${id}.${l}`, v[l]);
+      else put(`f.${id}`, f.type === "multi" ? v.split(",").filter(Boolean) : v);
+    }
+    for (const [k, v] of Object.entries(texts)) for (const l of I.LANGS) put(`t.${l}.${k}`, v[l]);
+    for (const [k, v] of Object.entries(over)) {
+      fd.delete(k);
+      put(k, v);
+    }
+    return fd;
+  }
+  const tFor = async (lang: "en" | "mr" | "hi") => {
+    const site = await S.getSite(lang);
+    return I.makeT(lang, { vars: site.vars, overrides: site.overrides });
+  };
+
+  test("out of the box everything reads exactly as it did before (names, rules, texts)", async () => {
+    assert.deepEqual((await S.getSite("en")).vars, { gym: "Vihan Fitness", gymShort: "Vihan", owner: "Bharat sir", ownerName: "Bharat Gite", town: "Nagothane" });
+    assert.equal((await S.getSite("mr")).vars.owner, "भरत सर");
+    const r = await S.getRules();
+    assert.deepEqual([r.goalOptions, r.defaultGoal, r.maxClaims, r.maxHelp, r.backOnTrack, r.methods, r.upiId], [[4, 8, 12, 16, 20], 12, 5, 3, 6, ["cash", "upi", "other"], ""]);
+    assert.deepEqual(r.checklist.map((i) => i.key), ["meet", "goals", "equipment", "routine", "firstWeek"]);
+    assert.equal((await tFor("en"))("auth.registerTitle"), "Join Vihan Fitness");
+    assert.equal((await tFor("mr"))("errors.accountRejected"), "ही नोंदणी मंजूर झाली नाही. कृपया भरत सर यांच्याशी बोला.");
+  });
+
+  test("a rename reaches every text in every language; blank Marathi/Hindi fall back to English", async () => {
+    await S.savePage("brand", await pageForm("brand", { "f.gymName.en": "Power House", "f.gymName.mr": "", "f.gymName.hi": "पावर हाउस", "f.owner.en": "Ravi sir", "f.owner.mr": "रवी सर" }));
+    assert.equal((await tFor("en"))("auth.registerTitle"), "Join Power House");
+    assert.equal((await tFor("mr"))("publicSite.footer"), "Power House · नागोठणे"); // blank Marathi name → English
+    assert.equal((await tFor("hi"))("publicSite.footer"), "पावर हाउस · नागोठणे");
+    assert.match((await tFor("mr"))("errors.accountRejected"), /रवी सर यांच्याशी/);
+  });
+
+  test("a wording edit must keep its {placeholders}; saving the original text removes the edit", async () => {
+    assert.throws(() => S.cleanText("en", "whatsapp.templates.fee", "Hi {name}, please pay."), { code: "placeholdersChanged" });
+    assert.throws(() => S.cleanText("en", "whatsapp.templates.fee", "Hi {name} {amount} {months} {amout}"), { code: "placeholdersChanged" });
+    // Brand names may be added or dropped freely.
+    assert.equal(S.cleanText("en", "whatsapp.templates.attendance", "Hey {name}! Miss you at {gym}."), "Hey {name}! Miss you at {gym}.");
+    await assert.rejects(S.savePage("messages", await pageForm("messages", { "t.mr.whatsapp.templates.receipt": "पावती" })), { code: "placeholdersChanged", field: "t.mr.whatsapp.templates.receipt" });
+
+    const fd = new FormData();
+    fd.set("t.en.publicSite.heroTop", "Lift heavy.");
+    fd.set("t.mr.publicSite.heroTop", C.defaultText("mr", "publicSite.heroTop")!);
+    fd.set("t.hi.publicSite.heroTop", "");
+    await S.saveText("publicSite.heroTop", fd);
+    assert.equal((await tFor("en"))("publicSite.heroTop"), "Lift heavy.");
+    assert.equal((await tFor("mr"))("publicSite.heroTop"), C.defaultText("mr", "publicSite.heroTop")); // each language keeps its own text
+    fd.set("t.en.publicSite.heroTop", C.defaultText("en", "publicSite.heroTop")!);
+    await S.saveText("publicSite.heroTop", fd);
+    assert.equal((await settingsByPrefix(["text."])).size, 0);
+    assert.throws(() => S.cleanText("en", "no.such.key", "x"), { code: "invalidInput" });
+  });
+
+  test("goal choices: the default must be one of them, and removed choices can't be picked", async () => {
+    await assert.rejects(S.savePage("rules", await pageForm("rules", { "f.goalOptions": "8, 16", "f.defaultGoal": "12" })), { code: "defaultGoalMissing" });
+    await assert.rejects(S.savePage("rules", await pageForm("rules", { "f.goalOptions": "8" })), { code: "goalListInvalid" });
+    await S.savePage("rules", await pageForm("rules", { "f.goalOptions": "16 8", "f.defaultGoal": "8" }));
+    assert.deepEqual((await S.getRules()).goalOptions, [8, 16]);
+    const id = await newMember(NOW);
+    assert.equal((await E.goalFor(id)).target, 8);
+    await assert.rejects(E.setGoal(id, 12), { code: "goalInvalid" });
+    await E.setGoal(id, 16);
+  });
+
+  test("a removed checklist item stays ticked in old records but can't be ticked again", async () => {
+    const id = await newMember(NOW);
+    await E.toggleOnboarding(id, "meet", true, admin);
+    const items = [{ key: "goals", label: {} }, { key: "", label: { en: "Diet chat", mr: "आहार चर्चा" } }];
+    await S.savePage("rules", await pageForm("rules", { "f.checklist": JSON.stringify(items) }));
+    const list = (await S.getRules()).checklist;
+    assert.deepEqual(list.map((i) => i.key)[0], "goals");
+    assert.match(list[1].key, /^c[0-9a-f]{8}$/);
+    assert.ok((await E.onboardingDone(id)).has("meet"));
+    await assert.rejects(E.toggleOnboarding(id, "meet", true, admin), { code: "invalidInput" });
+    await E.toggleOnboarding(id, list[1].key, true, admin);
+    assert.equal(C.checklistLabel(list[1], "hi", (k) => k), "Diet chat"); // no Hindi label → English
+    await assert.rejects(S.savePage("rules", await pageForm("rules", { "f.checklist": JSON.stringify([{ key: "", label: { mr: "फक्त मराठी" } }]) })), { code: "checklistInvalid" });
+  });
+
+  test("claim and help-request limits come from the settings", async () => {
+    await S.savePage("rules", await pageForm("rules", { "f.maxClaims": "1", "f.maxHelp": "1" }));
+    const id = await newMember(NOW);
+    await L.submitClaim(id, { amount: FEE, paidOn: todayIST(), method: "upi" });
+    await assert.rejects(L.submitClaim(id, { amount: FEE, paidOn: todayIST(), method: "upi" }), { code: "tooManyClaims" });
+    await E.createHelpRequest(id, "routine", null);
+    await assert.rejects(E.createHelpRequest(id, "general", null), { code: "tooManyHelpRequests" });
+    await assert.rejects(S.savePage("rules", await pageForm("rules", { "f.maxClaims": "0" })), { code: "numberRange" });
+    await assert.rejects(S.savePage("rules", await pageForm("rules", { "f.methods": [] })), { code: "methodsEmpty" });
+  });
+
+  test("UPI IDs and links are checked; the pay link carries the amount", async () => {
+    await assert.rejects(S.savePage("rules", await pageForm("rules", { "f.upiId": "not a upi" })), { code: "upiInvalid" });
+    await S.savePage("rules", await pageForm("rules", { "f.upiId": "bharat.gite@okhdfcbank", "f.upiName": "Bharat Gite" }));
+    assert.equal((await S.getRules()).upiId, "bharat.gite@okhdfcbank");
+    assert.equal(C.upiLink({ id: "a.b@okaxis", name: "Bharat Gite", rupees: 1000, note: "Fees" }), "upi://pay?pa=a.b%40okaxis&pn=Bharat%20Gite&am=1000.00&cu=INR&tn=Fees");
+    for (const bad of ["http://instagram.com/x", "javascript:alert(1)", "instagram.com/x"])
+      await assert.rejects(S.savePage("contact", await pageForm("contact", { "f.instagram": bad })), { code: "urlInvalid" });
+    await S.savePage("contact", await pageForm("contact", { "f.instagram": "https://instagram.com/vihanfitness", "f.phone": "98200 12345 ext" }));
+    const site = await S.getSite("en");
+    assert.equal(site.social.instagram, "https://instagram.com/vihanfitness");
+    assert.equal(site.info.phone, "98200 12345");
+  });
+
+  test("every accent preset keeps text readable (WCAG 4.5:1)", () => {
+    const lum = (hex: string) => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a: string, b: string) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    for (const [name, a] of Object.entries(C.ACCENTS)) {
+      assert.ok(ratio("#121210", a.volt) >= 4.5, `${name}: dark text on the accent`);
+      assert.ok(ratio(a.ink, "#fffdf9") >= 4.5, `${name}: accent text on light surfaces`);
+      assert.ok(ratio(a.ink, a.soft) >= 4.5, `${name}: accent text on its soft tint`);
+    }
+  });
+
+  test("the dictionaries carry no hard-coded names, and every language uses the same placeholders", () => {
+    const names = /Bharat|Vihan|Nagothane|Gite|भरत स|भरत \(|विहान|नागोठ|गिते/;
+    for (const k of C.allTextKeys()) {
+      if (k.startsWith("site.")) continue; // admin help may quote examples
+      const sets = I.LANGS.map((l) => [...(I.lookup(I.DICTS[l], k) ?? "").matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join());
+      assert.ok(sets.every((s) => s === sets[0]), `${k}: placeholders differ between languages (${sets.join(" | ")})`);
+      for (const l of I.LANGS) assert.ok(!names.test(I.lookup(I.DICTS[l], k) ?? ""), `${l} ${k} still names the gym or owner`);
+    }
+  });
+});

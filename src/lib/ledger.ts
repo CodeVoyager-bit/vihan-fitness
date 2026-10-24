@@ -1,4 +1,5 @@
 import { revokeSessions } from "./accounts";
+import { getRules } from "./site";
 import { AppError, all, audit, type ChargeDoc, db, nextId, nowIso, type PaymentDoc, setSetting, setting, settingInt, type StatusDoc, tx } from "./db";
 import { REVERSED_PREFIX } from "./format";
 import { type OpenCharge, type FutureMonth, type PlanLine, planAllocation, validatePlan } from "./plan";
@@ -553,7 +554,7 @@ export async function submitClaim(memberId: number, c: { amount: number; paidOn:
   return tx(async () => {
     await member(memberId);
     const d = await db();
-    if ((await d.claims.count({ member_id: memberId, status: "pending" })) >= 5) throw new AppError("tooManyClaims");
+    if ((await d.claims.count({ member_id: memberId, status: "pending" })) >= (await getRules()).maxClaims) throw new AppError("tooManyClaims");
     const id = await nextId("claims");
     await d.claims.insertOne({
       _id: id,
