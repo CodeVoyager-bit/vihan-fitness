@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+!.env.example
+
+# local databases & backups (never commit member data)
+/data/
+/backups/
+*.db
+*.db-wal
+*.db-shm
+
+# local Claude Code tooling
+/.claude/

@@ -1,26 +1,214 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ─────────────── Vihan Fitness design tokens ───────────────
+   Charcoal ink, warm sand surfaces, one vibrant "volt" accent.
+   Volt is a fill colour (always with ink text on it); text-on-light uses volt-ink. */
+@theme {
+  --color-ink-950: #121210;
+  --color-ink-900: #1b1b18;
+  --color-ink-800: #26261f;
+  --color-ink-700: #3a3a32;
+  --color-ink-600: #55544b;
+  --color-ink-500: #6b6a60;
+  --color-ink-400: #8f8d82;
+  --color-ink-300: #b5b2a6;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-sand-0: #fffdf9;
+  --color-sand-50: #faf8f3;
+  --color-sand-100: #f3efe6;
+  --color-sand-200: #e7e1d4;
+  --color-sand-300: #d8d0bf;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-volt: #c8f23c;
+  --color-volt-soft: #eefbc4;
+  --color-volt-strong: #b4e01f;
+  --color-volt-ink: #445c00;
+
+  --color-ok: #17704a;
+  --color-ok-soft: #e1f3e8;
+  --color-warn: #8f5300;
+  --color-warn-soft: #fdefd3;
+  --color-bad: #b42318;
+  --color-bad-soft: #fde7e4;
+  --color-info: #1c5ba8;
+  --color-info-soft: #e3edfb;
+  --color-mute: #55544b;
+  --color-mute-soft: #ebe7de;
+
+  --font-display: var(--font-barlow-condensed), var(--font-anek), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-barlow), var(--font-mukta), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-2xl: 28px;
+
+  --shadow-card: 0 1px 0 rgb(27 27 24 / 0.04), 0 1px 3px rgb(27 27 24 / 0.06);
+  --shadow-lift: 0 2px 6px rgb(27 27 24 / 0.06), 0 12px 32px -12px rgb(27 27 24 / 0.22);
+  --shadow-sheet: 0 -8px 40px rgb(18 18 16 / 0.25);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --animate-pop: pop 420ms var(--ease-spring) both;
+  --animate-rise: rise 360ms var(--ease-out) both;
+  --animate-fade: fade 240ms var(--ease-out) both;
+
+  @keyframes pop {
+    0% { transform: scale(0.6); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes rise {
+    0% { transform: translateY(8px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes fade {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-sand-100);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Devanagari needs taller lines and must never get letter-spacing (it breaks conjuncts). */
+  :lang(mr),
+  :lang(hi) {
+    line-height: 1.65;
+  }
+  :lang(mr) *,
+  :lang(hi) * {
+    letter-spacing: normal !important;
+  }
+  .font-display {
+    font-stretch: 82%;
+  }
+  /* Tight Latin display leading would clip Devanagari matras. */
+  :lang(mr) .font-display,
+  :lang(hi) .font-display {
+    line-height: 1.12 !important;
+  }
+  button,
+  [role="button"],
+  a,
+  label,
+  summary,
+  select {
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-ink-900);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .dark-surface :focus-visible {
+    outline-color: var(--color-volt);
+  }
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  dialog::backdrop {
+    background: rgb(18 18 16 / 0.55);
+    backdrop-filter: blur(2px);
+  }
+  ::selection {
+    background: var(--color-volt);
+    color: var(--color-ink-950);
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+  }
+}
+
+/* Bottom-sheet dialogs on phones, centred cards on larger screens. */
+dialog.sheet {
+  margin: auto auto 0;
+  width: 100%;
+  max-width: 560px;
+  max-height: 92dvh;
+  border: 0;
+  padding: 0;
+  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  background: var(--color-sand-0);
+  color: var(--color-ink-900);
+  box-shadow: var(--shadow-sheet);
+  overscroll-behavior: contain;
+}
+dialog.sheet[open] {
+  animation: sheet-in 320ms var(--ease-out);
+}
+@media (min-width: 640px) {
+  dialog.sheet {
+    margin: auto;
+    border-radius: var(--radius-2xl);
+  }
+  dialog.sheet[open] {
+    animation: rise 260ms var(--ease-out);
+  }
+}
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
+
+/* Landing phone mock: the goal ring fills to 7/12 once. */
+.landing-ring {
+  stroke-dashoffset: 207;
+  animation: landing-ring 1.8s 0.6s var(--ease-out) forwards;
+}
+@keyframes landing-ring {
+  to { stroke-dashoffset: 86; }
 }
