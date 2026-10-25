@@ -6,9 +6,9 @@ import { Avatar, Card, EmptyState, PageHeader, SectionTitle, StatusBadge } from 
 import { claimReason, fmtDate, fmtMonth, money, relDay } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { all } from "@/lib/db";
-import { linkablePayments, sum, unbilledMonths } from "@/lib/ledger";
+import { sum } from "@/lib/ledger";
 import { planAllocation } from "@/lib/plan";
-import { claims, openChargesOf } from "@/lib/queries";
+import { claims, linkablePaymentsOf, openChargesOf, unbilledMonthsOf } from "@/lib/queries";
 import { requireAdmin } from "@/lib/session";
 import { addDays, todayIST } from "@/lib/time";
 
@@ -38,7 +38,7 @@ export default async function ClaimsPage() {
       ) : (
         <ul className="space-y-3">
           {await Promise.all(pending.map(async (c) => {
-            const [open, future, linkable] = await all(() => openChargesOf(c.member_id, today), () => unbilledMonths(c.member_id), () => linkablePayments(c.member_id));
+            const [open, future, linkable] = await all(() => openChargesOf(c.member_id, today), () => unbilledMonthsOf(c.member_id), () => linkablePaymentsOf(c.member_id));
             const outstanding = sum(open.map((o) => o.outstanding));
             for (const o of open) openById.set(o.id, o);
             const plan = planAllocation(c.amount_paise, open, future);

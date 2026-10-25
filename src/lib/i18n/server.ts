@@ -1,6 +1,8 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
+import { money } from "../format";
+import { MAX_PAYMENT_PAISE } from "../ledger";
 import { getUser } from "../session";
 import { getSite } from "../site";
 import { type Lang, LANGS, type T, type TCtx, isLang, makeT } from "./index";
@@ -19,10 +21,10 @@ export const getLang = cache(async (): Promise<Lang> => {
   return "en";
 });
 
-/** The owner's brand names and wording overrides for one language. */
+/** The owner's brand names and wording overrides for one language, plus limits the messages quote. */
 export async function i18nCtx(lang: Lang): Promise<TCtx> {
   const { vars, overrides } = await getSite(lang);
-  return { vars, overrides };
+  return { vars: { ...vars, maxEntry: money(MAX_PAYMENT_PAISE, lang) }, overrides };
 }
 
 export const getT = cache(async () => {

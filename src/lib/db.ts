@@ -247,8 +247,12 @@ export function db(): Promise<DB> {
 async function init(): Promise<DB> {
   const raw = mongo().db(dbName());
   const d = Object.fromEntries(Object.keys(INDEXES).map((name) => [name, scoped(raw.collection(name))])) as DB;
-  // createIndexes is a no-op for indexes that already exist.
-  await Promise.all(Object.entries(INDEXES).filter(([, specs]) => specs.length).map(([name, specs]) => raw.collection(name).createIndexes(specs)));
+  // createIndexes is a no-op for indexes that already exist. One that can't be built (say old data breaks a
+  // new unique rule) is logged and retried on the next start instead of taking every page down; indexes
+  // already in place keep enforcing their rules either way.
+  const specs = Object.entries(INDEXES).filter(([, list]) => list.length);
+  const built = await Promise.allSettled(specs.map(([name, list]) => raw.collection(name).createIndexes(list)));
+  built.forEach((r, i) => r.status === "rejected" && console.error(`Indexes on ${specs[i][0]} not built:`, r.reason));
   await seedDefaults(d);
   return d;
 }

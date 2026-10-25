@@ -74,6 +74,8 @@ export async function ledger(memberId?: number) {
  */
 export const screenLedger = cache(() => ledger());
 export const screenStatuses = cache(() => loadStatuses());
+export const screenMembers = cache(async () => (await db()).users.find({ role: "member", status: "approved" }).toArray());
+export const screenFees = cache(() => loadFees());
 
 const byDueDesc = (a: ChargeRow, b: ChargeRow) => b.due_date.localeCompare(a.due_date) || b.id - a.id;
 
@@ -105,7 +107,7 @@ export async function statusAt(memberId: number, month: string): Promise<MemberS
 
 // Loops over months load the fee schedule and status history once and look months up in memory:
 // each query is a network round trip to the hosted database.
-type Fee = { effective_month: string; amount_paise: number };
+export type Fee = { effective_month: string; amount_paise: number };
 const loadFees = async (): Promise<Fee[]> =>
   (await (await db()).fee_schedule.find({}, { sort: { _id: -1 } }).toArray()).map((f) => ({ effective_month: f._id, amount_paise: f.amount_paise }));
 const feeIn = (fees: Fee[], month: string) => fees.find((f) => f.effective_month <= month)?.amount_paise ?? null;
@@ -275,12 +277,15 @@ export async function unbilledMonths(memberId: number, count = 12): Promise<Futu
     () => loadFees(),
     () => loadStatuses(memberId),
   );
-  const start = firstBillableMonth(m.billing_start_month, launch);
+  return monthsAhead(m.billing_start_month, launch, new Set(monthly.map((r) => r.period_month)), fees, statusMap.get(memberId), count);
+}
+
+/** From this month on: months the member is billed for (active, on/after launch and start) with no charge yet. */
+export function monthsAhead(billingStart: string, launch: string | undefined, billed: Set<string | null>, fees: Fee[], statuses: StatusDoc[] | undefined, count = 12): FutureMonth[] {
+  const start = firstBillableMonth(billingStart, launch);
   if (!start) return [];
   const now = currentMonth();
   const from = start > now ? start : now;
-  const billed = new Set(monthly.map((r) => r.period_month));
-  const statuses = statusMap.get(memberId);
   const out: FutureMonth[] = [];
   for (const month of monthsBetween(from, addMonths(now, count))) {
     if (billed.has(month) || statusRowIn(statuses, month)?.status !== "active") continue;
@@ -487,7 +492,8 @@ export async function reverseWaiver(waiverId: number, reason: string, actorId: n
   if (!reason.trim()) throw new AppError("reasonRequired", "reason");
   await tx(async () => {
     const d = await db();
-    const w = await d.waivers.findOne({ _id: waiverId, reversed_at: null }, { projection: { member_id: 1 } });
+    // Status waivers follow the membership status; they change with it, not by hand.
+    const w = await d.waivers.findOne({ _id: waiverId, reversed_at: null, source: "admin" }, { projection: { member_id: 1 } });
     if (!w) throw new AppError("waiverNotFound");
     await d.waivers.updateOne({ _id: waiverId }, { $set: { reversed_at: nowIso(), reversed_by: actorId, reversal_reason: reason.trim() } });
     await audit(actorId, "waiver.reversed", { memberId: w.member_id, entity: "waiver", entityId: waiverId, detail: { reason: reason.trim() } });
@@ -657,11 +663,21 @@ export async function rejectClaim(claimId: number, reason: string, actorId: numb
 /** Recorded payments a claim might duplicate: same member, not reversed, not already linked. */
 export async function linkablePayments(memberId: number) {
   const d = await db();
-  const linked = (await d.claims.find({ member_id: memberId, payment_id: { $ne: null } }, { projection: { payment_id: 1 } }).toArray()).map((c) => c.payment_id!);
-  const rows = await d.payments
-    .find({ member_id: memberId, reversed_at: null, _id: { $nin: linked } }, { sort: { paid_on: -1, _id: -1 }, limit: 10, projection: { amount_paise: 1, paid_on: 1, method: 1, reference: 1 } })
-    .toArray();
-  return rows.map((p) => ({ id: p._id, amount_paise: p.amount_paise, paid_on: p.paid_on, method: p.method, reference: p.reference }));
+  const [payments, linked] = await all(
+    () => d.payments.find({ member_id: memberId, reversed_at: null }).toArray(),
+    () => d.claims.find({ member_id: memberId, payment_id: { $ne: null } }, { projection: { payment_id: 1 } }).toArray(),
+  );
+  return linkableOf(payments.map(({ _id, ...p }) => ({ id: _id, ...p })), new Set(linked.map((c) => c.payment_id!)));
+}
+
+type PaymentLike = Pick<PaymentBalance, "id" | "amount_paise" | "paid_on" | "method" | "reference" | "reversed_at">;
+/** The newest ten of `payments` that aren't reversed or already tied to a claim. */
+export function linkableOf(payments: PaymentLike[], linked: Set<number>) {
+  return payments
+    .filter((p) => !p.reversed_at && !linked.has(p.id))
+    .sort((a, b) => b.paid_on.localeCompare(a.paid_on) || b.id - a.id)
+    .slice(0, 10)
+    .map((p) => ({ id: p.id, amount_paise: p.amount_paise, paid_on: p.paid_on, method: p.method, reference: p.reference }));
 }
 
 // ───────────────────────────── approvals ─────────────────────────────
@@ -704,19 +720,23 @@ export async function rejectRegistration(userId: number, reason: string, actorId
 
 // ───────────────────────────── balances ─────────────────────────────
 
-export type Balance = { outstanding: number; overdue: number; credit: number; pendingClaims: number; pendingClaimAmount: number };
+/** `toPay` leaves out money already claimed (waiting for confirmation), so a member is never asked for it twice. */
+export type Balance = { outstanding: number; overdue: number; credit: number; pendingClaims: number; pendingClaimAmount: number; toPay: number };
 
 export async function balanceOf(memberId: number, today = todayIST()): Promise<Balance> {
   const [{ charges, payments }, pending] = await all(
     () => ledger(memberId),
     async () => (await db()).claims.find({ member_id: memberId, status: "pending" }, { projection: { amount_paise: 1 } }).toArray(),
   );
+  const outstanding = sum(charges.map((c) => c.outstanding));
+  const pendingClaimAmount = sum(pending.map((c) => c.amount_paise));
   return {
-    outstanding: sum(charges.map((c) => c.outstanding)),
+    outstanding,
     overdue: sum(charges.filter((c) => c.due_date < today).map((c) => c.outstanding)),
     credit: sum(payments.filter((p) => !p.reversed_at).map((p) => p.unallocated_paise)),
     pendingClaims: pending.length,
-    pendingClaimAmount: sum(pending.map((c) => c.amount_paise)),
+    pendingClaimAmount,
+    toPay: Math.max(outstanding - pendingClaimAmount, 0),
   };
 }
 

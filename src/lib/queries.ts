@@ -1,10 +1,25 @@
 // Read models for screens. Every caller is already behind requireAdmin()/requireMember().
 // Loads shared by several parts of one screen go through cache(): once per page render.
 import { cache } from "react";
-import { all, db, type StatusDoc } from "./db";
+import { all, db, setting, type StatusDoc } from "./db";
 import { lastVisits } from "./engage";
-import type { OpenCharge } from "./plan";
-import { type ChargeRow, type MemberStatus, type Method, ledger, loadStatuses, screenLedger, screenStatuses, statusRowIn, sum, toOpen } from "./ledger";
+import type { FutureMonth, OpenCharge } from "./plan";
+import {
+  type ChargeRow,
+  type MemberStatus,
+  type Method,
+  ledger,
+  linkableOf,
+  loadStatuses,
+  monthsAhead,
+  screenFees,
+  screenLedger,
+  screenMembers,
+  screenStatuses,
+  statusRowIn,
+  sum,
+  toOpen,
+} from "./ledger";
 import { addMonths, currentMonth, monthOf, todayIST } from "./time";
 
 export type MonthState = "paid" | "part" | "unpaid" | "overdue" | "waived" | "none" | "notStarted";
@@ -25,11 +40,26 @@ const groupBy = <T, K>(xs: T[], key: (x: T) => K) => {
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, "en", { sensitivity: "base" });
 
-const approvedMembers = cache(async () => (await db()).users.find({ role: "member", status: "approved" }).toArray());
+// The screen versions of openCharges, unbilledMonths and linkablePayments (ledger.ts): same rules, but
+// worked out from the loads the whole page shares, so a list of members costs no extra queries per row.
+const launchMonth = cache(() => setting("launch_month"));
+const linkedPayments = cache(async () => new Set((await (await db()).claims.find({ payment_id: { $ne: null } }, { projection: { payment_id: 1 } }).toArray()).map((c) => c.payment_id!)));
 
-/** One member's unpaid charges in payment order, from the screen's shared ledger. */
 export async function openChargesOf(memberId: number, today = todayIST()): Promise<OpenCharge[]> {
   return toOpen((await screenLedger()).charges.filter((c) => c.member_id === memberId), today);
+}
+
+export async function unbilledMonthsOf(memberId: number): Promise<FutureMonth[]> {
+  const [members, launch, { charges }, fees, statuses] = await all(() => screenMembers(), () => launchMonth(), () => screenLedger(), () => screenFees(), () => screenStatuses());
+  const m = members.find((u) => u.uid === memberId);
+  if (!m?.billing_start_month) return [];
+  const billed = new Set(charges.filter((c) => c.member_id === memberId && c.kind === "monthly").map((c) => c.period_month));
+  return monthsAhead(m.billing_start_month, launch, billed, fees, statuses.get(memberId));
+}
+
+export async function linkablePaymentsOf(memberId: number) {
+  const [{ payments }, linked] = await all(() => screenLedger(), () => linkedPayments());
+  return linkableOf(payments.filter((p) => p.member_id === memberId), linked);
 }
 
 /** The earliest status change after `month` (a scheduled pause, leave or return). */
@@ -66,7 +96,7 @@ export async function directory(today = todayIST()): Promise<DirRow[]> {
   const month = monthOf(today);
   const d = await db();
   const [members, statuses, { charges, payments }, pending, visits] = await all(
-    () => approvedMembers(),
+    () => screenMembers(),
     () => screenStatuses(),
     () => screenLedger(),
     () => d.claims.aggregate<{ _id: number; n: number; amount: number }>([{ $match: { status: "pending" } }, { $group: { _id: "$member_id", n: { $sum: 1 }, amount: { $sum: "$amount_paise" } } }]).toArray(),
@@ -120,7 +150,7 @@ export async function dashboard(today = todayIST()) {
   const [{ charges, payments }, counts, members, statuses] = await all(
     () => screenLedger(),
     () => inboxCounts(),
-    () => approvedMembers(),
+    () => screenMembers(),
     () => screenStatuses(),
   );
   const received = payments.filter((p) => !p.reversed_at && p.paid_on.startsWith(`${month}-`));

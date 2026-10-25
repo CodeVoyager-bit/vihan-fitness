@@ -26,6 +26,7 @@ after(async () => {
 const { backupLines, closeDb, db, isDemo, nextId, resetDbForTests, setSetting, tx } = await import("../src/lib/db");
 const L = await import("../src/lib/ledger");
 const E = await import("../src/lib/engage");
+const Q = await import("../src/lib/queries");
 const A = await import("../src/lib/accounts");
 const { auth } = await import("../src/lib/auth");
 const { addMonths, currentMonth, todayIST } = await import("../src/lib/time");
@@ -126,7 +127,7 @@ describe("payments", () => {
   test("advance payment covers upcoming months without creating overdue balances", async () => {
     const id = await newMember(NOW);
     await L.recordPayment({ memberId: id, amount: 3 * FEE, paidOn: todayIST(), method: "cash", actorId: admin });
-    assert.deepEqual((await bal(id)), { outstanding: 0, overdue: 0, credit: 0, pendingClaims: 0, pendingClaimAmount: 0 });
+    assert.deepEqual((await bal(id)), { outstanding: 0, overdue: 0, credit: 0, pendingClaims: 0, pendingClaimAmount: 0, toPay: 0 });
     assert.equal(await L.generateCharges({ upto: addMonths(NOW, 2) }), 0); // already billed & paid
     assert.equal((await L.chargesFor(id)).length, 3);
   });
@@ -473,6 +474,39 @@ describe("bug bash regressions", () => {
     const w = (await (await db()).waivers.findOne({ charge_id: c.id, source: "admin" }))!;
     await L.reverseWaiver(w._id, "Entered by mistake", admin);
     assert.equal((await bal(id)).outstanding, 0);
+  });
+
+  test("a status waiver can't be undone by hand; it follows the membership status", async () => {
+    const id = await newMember(NOW);
+    await L.setMemberStatus(id, "paused", NOW, null, admin);
+    const w = (await (await db()).waivers.findOne({ member_id: id, source: "status" }))!;
+    await assert.rejects(async () => L.reverseWaiver(w._id, "Trying", admin), /waiverNotFound/);
+    assert.equal((await bal(id)).outstanding, 0);
+  });
+
+  test("the amount still to pay leaves out money already claimed", async () => {
+    const id = await newMember(PREV);
+    await L.submitClaim(id, { amount: FEE, paidOn: todayIST(), method: "upi" });
+    const b = await bal(id);
+    assert.equal(b.outstanding, 2 * FEE);
+    assert.equal(b.toPay, FEE);
+    await L.submitClaim(id, { amount: 2 * FEE, paidOn: todayIST(), method: "upi" });
+    assert.equal((await bal(id)).toPay, 0);
+  });
+
+  test("screen versions of open charges, upcoming months and linkable payments match the ledger's", async () => {
+    const id = await newMember(PREV);
+    const other = await newMember(PREV);
+    const { paymentId } = await L.recordPayment({ memberId: id, amount: FEE, paidOn: todayIST(), method: "cash", actorId: admin });
+    await L.recordPayment({ memberId: other, amount: FEE, paidOn: todayIST(), method: "cash", actorId: admin });
+    await L.setMemberStatus(id, "paused", addMonths(NOW, 2), null, admin);
+    const linked = await L.submitClaim(id, { amount: FEE, paidOn: todayIST(), method: "cash" });
+    const { paymentId: second } = await L.recordPayment({ memberId: id, amount: 2 * FEE, paidOn: todayIST(), method: "upi", actorId: admin });
+    await L.linkClaim(linked, paymentId, admin);
+    assert.deepEqual(await Q.openChargesOf(id), await L.openCharges(id));
+    assert.deepEqual(await Q.unbilledMonthsOf(id), await L.unbilledMonths(id));
+    assert.deepEqual(await Q.linkablePaymentsOf(id), await L.linkablePayments(id));
+    assert.deepEqual((await L.linkablePayments(id)).map((p) => p.id), [second]);
   });
 
   test("too-large amounts say what's wrong instead of 'enter more than ₹0'", async () => {

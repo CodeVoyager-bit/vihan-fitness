@@ -17,14 +17,14 @@ export default async function ClaimPage() {
   const me = await requireMember();
   const { t, lang } = await getT();
   const bal = await balanceOf(me.id);
-  // Money already claimed (waiting for confirmation) isn't suggested twice.
-  const suggested = Math.max(bal.outstanding - bal.pendingClaimAmount, 0) || await feeFor(currentMonth()) || 0;
+  // The form suggests what is still due, else a month's fee (paying ahead); the UPI button only asks for money still due.
+  const suggested = bal.toPay || await feeFor(currentMonth()) || 0;
   const rules = await getRules();
   const gym = (await getSite(lang)).vars.gym;
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title={t("claimForm.title")} sub={t("claimForm.sub")} back={{ href: "/app/fees", label: t("nav.fees") }} />
-      {rules.upiId && suggested > 0 && <UpiPay id={rules.upiId} name={rules.upiName || gym} rupees={suggested / 100} note={`${gym} · ${me.name}`} />}
+      {rules.upiId && bal.toPay > 0 && <UpiPay id={rules.upiId} name={rules.upiName || gym} rupees={bal.toPay / 100} note={`${gym} · ${me.name}`} />}
       <ClaimForm today={todayIST()} suggested={suggested / 100} methods={rules.methods} />
     </div>
   );

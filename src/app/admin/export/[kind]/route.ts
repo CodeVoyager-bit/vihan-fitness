@@ -19,14 +19,17 @@ export async function GET(_: Request, { params }: { params: Promise<{ kind: stri
 
   if (kind === "backup") {
     await audit(admin.id, "export.backup");
-    // Streamed: hosted functions cap buffered responses, and the file grows with every visit recorded.
-    const lines = backupLines();
+    // Read from the database at full speed first: the backup's snapshot only lives ~5 minutes, and a slow
+    // download must not outlast it. Then streamed, because hosted functions cap buffered responses.
+    // (ponytail: holds the backup in memory while sending; fine for a gym's MBs, spool to a file if it nears 1 GB.)
+    const lines: string[] = [];
+    for await (const line of backupLines()) lines.push(line);
     const enc = new TextEncoder();
+    let i = 0;
     const body = new ReadableStream<Uint8Array>({
-      async pull(ctrl) {
-        const next = await lines.next();
-        if (next.done) ctrl.close();
-        else ctrl.enqueue(enc.encode(next.value));
+      pull(ctrl) {
+        if (i < lines.length) ctrl.enqueue(enc.encode(lines[i++]));
+        else ctrl.close();
       },
     });
     return new Response(body, {

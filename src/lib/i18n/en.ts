@@ -96,7 +96,7 @@ const en = {
     tooManyAttempts: "Too many tries. Please wait 15 minutes and try again.",
     resetCodeInvalid: "That code is wrong, used or expired. Ask {owner} for a new one.",
     amountInvalid: "Enter an amount greater than ₹0.",
-    amountTooLarge: "That's more than ₹50,000 — too much for one entry.",
+    amountTooLarge: "That's more than {maxEntry} — too much for one entry.",
     amountOverDue: "That's more than what's left on this charge.",
     dateInvalid: "Choose a date that isn't in the future.",
     methodInvalid: "Choose how the money was paid.",

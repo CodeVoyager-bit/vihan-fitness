@@ -223,7 +223,7 @@ async function FeesTab({ id, t, lang, charges }: { id: number; t: T; lang: Lang;
                       <div key={w.id} className={cx("flex flex-wrap items-center gap-x-1", w.reversed_at && "line-through opacity-60")}>
                         {t("memberDetail.waivedAmount", { amount: money(w.amount_paise, lang) })} —{" "}
                         {w.source === "status" ? waiverReason(w.reason, t, lang) : `“${w.reason}”`}
-                        {!w.reversed_at && <UndoWaiverSheet waiverId={w.id} />}
+                        {!w.reversed_at && w.source === "admin" && <UndoWaiverSheet waiverId={w.id} />}
                       </div>
                     ))}
                   </div>

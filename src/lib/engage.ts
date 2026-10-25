@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { AppError, all, audit, db, inMonth, nextId, nowIso, settingInt, tx } from "./db";
 import { getRules } from "./site";
-import { screenStatuses, statusAt, statusRowIn } from "./ledger";
+import { screenMembers, screenStatuses, statusAt, statusRowIn } from "./ledger";
 import { addDays, currentMonth, daysBetween, isDate, istDate, todayIST } from "./time";
 
 // ───────────────────────────── attendance ─────────────────────────────
@@ -46,7 +46,6 @@ export async function lastVisit(memberId: number): Promise<string | null> {
   return (await (await db()).attendance.findOne({ member_id: memberId }, { sort: { visit_date: -1 }, projection: { visit_date: 1 } }))?.visit_date ?? null;
 }
 
-/** Latest visit date per member. */
 /** Each member's latest recorded visit. Screens only; loaded once per page render. */
 export const lastVisits = cache(async (): Promise<Map<number, string>> => {
   // Sorted along the (member_id, visit_date) index, so the server reads one entry per member, not every visit.
@@ -84,7 +83,7 @@ export async function followUpCandidates(today = todayIST()): Promise<FollowUp[]
   const [threshold, cooldown, members, statuses, visits, prompts] = await all(
     () => settingInt("inactivity_days", 8),
     () => settingInt("followup_cooldown_days", 7),
-    () => d.users.find({ role: "member", status: "approved", followup_opt_in: 1 }).toArray(),
+    async () => (await screenMembers()).filter((u) => u.followup_opt_in === 1),
     () => screenStatuses(),
     () => lastVisits(),
     async () =>
