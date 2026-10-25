@@ -19,22 +19,57 @@ export function cloudinarySignature(params: Record<string, string | number>, sec
   return crypto.createHash("sha1").update(s + secret).digest("hex");
 }
 
+/** Key, secret and cloud name from CLOUDINARY_URL, exactly as typed (a URL parser would lowercase the cloud name). */
+function credentials() {
+  const m = process.env.CLOUDINARY_URL?.trim().match(/^cloudinary:\/\/([^:@\s]+):([^@\s]+)@([\w-]+)\/?$/);
+  return m ? { key: decodeURIComponent(m[1]), secret: decodeURIComponent(m[2]), cloud: m[3] } : null;
+}
+
 async function cloudinary(op: "upload" | "destroy", params: Record<string, string>, file?: Blob) {
   if (!process.env.CLOUDINARY_URL) throw new AppError("photosOff");
-  const u = new URL(process.env.CLOUDINARY_URL);
+  const c = credentials();
+  if (!c) {
+    console.error("CLOUDINARY_URL is not in the form cloudinary://<api_key>:<api_secret>@<cloud_name>");
+    throw new AppError("photoFailed");
+  }
   const signed = { ...params, timestamp: Math.floor(Date.now() / 1000) };
   const fd = new FormData();
   for (const [k, v] of Object.entries(signed)) fd.set(k, String(v));
-  fd.set("api_key", decodeURIComponent(u.username));
-  fd.set("signature", cloudinarySignature(signed, decodeURIComponent(u.password)));
+  fd.set("api_key", c.key);
+  fd.set("signature", cloudinarySignature(signed, c.secret));
   if (file) fd.set("file", file);
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${u.hostname}/image/${op}`, { method: "POST", body: fd });
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${c.cloud}/image/${op}`, { method: "POST", body: fd });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     console.error(`Cloudinary ${op} failed`, res.status, json);
     throw new AppError("photoFailed");
   }
   return json as { secure_url?: string };
+}
+
+export type CloudinaryStatus = "ok" | "format" | "placeholder" | "credentials" | "unreachable" | "other";
+
+/**
+ * Whether uploads can work, in words the admin can act on: asks Cloudinary to accept the credentials
+ * (its ping needs them). Cloudinary answers "api_secret mismatch" for a wrong key, secret or cloud name alike.
+ */
+export async function cloudinaryStatus(): Promise<CloudinaryStatus> {
+  const c = credentials();
+  if (!c) return "format";
+  if (/[<>*]|api_secret|api_key|cloud_name/i.test(`${c.key} ${c.secret} ${c.cloud}`)) return "placeholder"; // copied before revealing the secret
+  try {
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${c.cloud}/ping`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${c.key}:${c.secret}`).toString("base64")}` },
+      signal: AbortSignal.timeout(6000),
+      cache: "no-store",
+    });
+    if (res.ok) return "ok";
+    if (res.status === 401) return "credentials";
+    console.error("Cloudinary ping failed", res.status, await res.text().catch(() => ""));
+    return "other";
+  } catch {
+    return "unreachable";
+  }
 }
 
 const publicId = (name: string) => `vihan/${appMode()}/${name}`; // demo uploads never overwrite live ones

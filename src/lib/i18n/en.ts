@@ -71,6 +71,7 @@ const en = {
   helpTopic: { routine: "Help with my routine", general: "Something else" },
 
   errors: {
+    proofFailed: "The screenshot couldn't be uploaded. Try again, or remove it and send without it.",
     textTooLong: "That's too long. Please shorten it.",
     urlInvalid: "Links must be full web addresses starting with https://",
     numberRange: "That number is outside the allowed range.",
@@ -732,6 +733,13 @@ const en = {
     preview: "Preview",
     openSite: "Open the public page",
     photosOff: "Photo uploads are switched off. Add CLOUDINARY_URL to the server settings to turn them on.",
+    cloudinary: {
+      format: "Photo uploads aren't set up correctly: CLOUDINARY_URL must look like cloudinary://<api key>:<api secret>@<cloud name>. Copy it again from the Cloudinary dashboard.",
+      placeholder: "Photo uploads won't work: CLOUDINARY_URL still contains a placeholder instead of the real API secret. In the Cloudinary dashboard, reveal the secret, copy the full CLOUDINARY_URL again, and update it in the server settings (Vercel → Settings → Environment Variables), then redeploy.",
+      credentials: "Photo uploads won't work: Cloudinary rejected the key, secret or cloud name in CLOUDINARY_URL. Copy the full API environment variable again from the Cloudinary dashboard (with the secret revealed), update it in the server settings (Vercel → Settings → Environment Variables), then redeploy.",
+      unreachable: "Couldn't reach Cloudinary just now to check photo uploads. Refresh in a minute.",
+      other: "Cloudinary didn't accept the photo upload settings. Check CLOUDINARY_URL in the server settings and the server log for details.",
+    },
     fields: {
       gymName: "Gym name",
       gymShort: "Short name",

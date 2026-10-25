@@ -848,6 +848,19 @@ describe("UPI claim screenshots", () => {
     assert.equal((await bal(id)).outstanding, FEE);
   });
 
+  test("a CLOUDINARY_URL with a placeholder or the wrong shape is caught before calling Cloudinary", async () => {
+    for (const [url, want] of [
+      ["cloudinary://123456789012345:<your_api_secret>@dxyz123", "placeholder"],
+      ["cloudinary://123456789012345:**********@dxyz123", "placeholder"],
+      ["CLOUDINARY_URL=cloudinary://1:2@dxyz123", "format"],
+      ["https://example.com", "format"],
+    ] as const) {
+      process.env.CLOUDINARY_URL = url;
+      assert.equal(await P.cloudinaryStatus(), want, url);
+    }
+    delete process.env.CLOUDINARY_URL;
+  });
+
   test("a screenshot that isn't an image is refused before anything is sent to Cloudinary", async () => {
     process.env.CLOUDINARY_URL = "cloudinary://key:secret@cloud";
     await assert.rejects(P.uploadClaimProof(1, new File(["x"], "a.pdf", { type: "application/pdf" })), { code: "photoInvalid" });

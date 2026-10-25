@@ -44,7 +44,8 @@ export async function submitClaimAction(_: Result<{ amount: number }> | null, fd
     } else {
       checkPaymentFields(c.amount, c.paidOn, c.method);
       const proof = await uploadClaimProof(me.id, file).catch((e: unknown) => {
-        throw e instanceof AppError ? new AppError(e.code, "proof") : e; // shown under the screenshot field
+        // Shown under the screenshot field; a failed upload says the claim can still go without it.
+        throw e instanceof AppError ? new AppError(e.code === "photoFailed" ? "proofFailed" : e.code, "proof") : e;
       });
       try {
         await submitClaim(me.id, { ...c, proof: proof.url });

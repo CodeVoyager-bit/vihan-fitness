@@ -72,6 +72,7 @@ const mr: Dict = {
   helpTopic: { routine: "माझ्या व्यायाम रूटीनसाठी मदत", general: "इतर काही" },
 
   errors: {
+    proofFailed: "स्क्रीनशॉट अपलोड झाला नाही. पुन्हा प्रयत्न करा, किंवा तो काढून त्याशिवाय पाठवा.",
     textTooLong: "हे खूप मोठे आहे. कृपया छोटे करा.",
     urlInvalid: "लिंक https:// ने सुरू होणारा पूर्ण वेब पत्ता असावा.",
     numberRange: "हा आकडा परवानगी असलेल्या मर्यादेबाहेर आहे.",
@@ -733,6 +734,13 @@ const mr: Dict = {
     preview: "पूर्वावलोकन",
     openSite: "सार्वजनिक पान उघडा",
     photosOff: "फोटो अपलोड बंद आहे. चालू करण्यासाठी सर्व्हर सेटिंग्जमध्ये CLOUDINARY_URL टाका.",
+    cloudinary: {
+      format: "फोटो अपलोड नीट सेट झालेले नाही: CLOUDINARY_URL हे cloudinary://<api key>:<api secret>@<cloud name> असे असावे. Cloudinary डॅशबोर्डवरून पुन्हा कॉपी करा.",
+      placeholder: "फोटो अपलोड चालणार नाही: CLOUDINARY_URL मध्ये खऱ्या API secret ऐवजी अजून नमुना मजकूर आहे. Cloudinary डॅशबोर्डमध्ये secret उघडून पूर्ण CLOUDINARY_URL पुन्हा कॉपी करा, सर्व्हर सेटिंग्जमध्ये (Vercel → Settings → Environment Variables) बदला आणि पुन्हा deploy करा.",
+      credentials: "फोटो अपलोड चालणार नाही: Cloudinary ने CLOUDINARY_URL मधील key, secret किंवा cloud name नाकारले. Cloudinary डॅशबोर्डवरून secret उघडून पूर्ण API environment variable पुन्हा कॉपी करा, सर्व्हर सेटिंग्जमध्ये (Vercel → Settings → Environment Variables) बदला आणि पुन्हा deploy करा.",
+      unreachable: "फोटो अपलोड तपासण्यासाठी आत्ता Cloudinary पर्यंत पोहोचता आले नाही. एका मिनिटाने पान रिफ्रेश करा.",
+      other: "Cloudinary ने फोटो अपलोडच्या सेटिंग्ज स्वीकारल्या नाहीत. सर्व्हर सेटिंग्जमधील CLOUDINARY_URL आणि सर्व्हर लॉग तपासा.",
+    },
     fields: {
       gymName: "जिमचे नाव",
       gymShort: "छोटे नाव",

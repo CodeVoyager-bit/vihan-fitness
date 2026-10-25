@@ -4,11 +4,11 @@ import { ImageIcon } from "lucide-react";
 import { SiteForm } from "../site-form";
 import { saveSiteAction, sitePhotoAction } from "@/app/actions/admin";
 import { PhotoButtons } from "@/components/client";
-import { Card, PageHeader, SectionTitle } from "@/components/ui";
+import { Card, PageHeader, SectionTitle, Notice } from "@/components/ui";
 import { photoUrl } from "@/lib/format";
 import { type Lang, LANGS, type TKey } from "@/lib/i18n";
 import { getT } from "@/lib/i18n/server";
-import { type PhotoSlot, photosEnabled } from "@/lib/photos";
+import { type PhotoSlot, cloudinaryStatus, photosEnabled } from "@/lib/photos";
 import { getSite, pageValues } from "@/lib/site";
 import { LAYOUT, PAGE_IDS, type PageId } from "@/lib/site-config";
 import { requireAdmin } from "@/lib/session";
@@ -40,10 +40,18 @@ export default async function SiteSettingsPage({ params }: Params) {
   const { t, lang } = await getT();
   const site = await getSite(lang);
   const vars = Object.fromEntries(await Promise.all(LANGS.map(async (l) => [l, (await getSite(l)).vars]))) as Record<Lang, Record<string, string>>;
+  // Pages with uploads check that Cloudinary accepts the credentials, so a wrong CLOUDINARY_URL is explained here.
+  const uploads = PHOTOS[page] && photosEnabled() ? await cloudinaryStatus() : null;
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title={t(`site.pages.${page}.title`)} sub={t(`site.pages.${page}.sub`)} back={{ href: "/admin/more", label: t("nav.more") }} />
+
+      {uploads && uploads !== "ok" && (
+        <div className="mt-4">
+          <Notice tone="bad">{t(`site.cloudinary.${uploads}`)}</Notice>
+        </div>
+      )}
 
       {PHOTOS[page]?.map((group) => (
         <div key={group.label}>

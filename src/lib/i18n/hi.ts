@@ -72,6 +72,7 @@ const hi: Dict = {
   helpTopic: { routine: "मेरे रूटीन में मदद", general: "कुछ और" },
 
   errors: {
+    proofFailed: "स्क्रीनशॉट अपलोड नहीं हो पाया। फिर से कोशिश करें, या इसे हटाकर बिना स्क्रीनशॉट के भेजें।",
     textTooLong: "यह बहुत लंबा है। कृपया छोटा करें।",
     urlInvalid: "लिंक https:// से शुरू होने वाला पूरा वेब पता होना चाहिए।",
     numberRange: "यह संख्या तय सीमा से बाहर है।",
@@ -733,6 +734,13 @@ const hi: Dict = {
     preview: "पूर्वावलोकन",
     openSite: "सार्वजनिक पेज खोलें",
     photosOff: "फ़ोटो अपलोड बंद है। चालू करने के लिए सर्वर सेटिंग्स में CLOUDINARY_URL डालें।",
+    cloudinary: {
+      format: "फ़ोटो अपलोड ठीक से सेट नहीं है: CLOUDINARY_URL ऐसा होना चाहिए: cloudinary://<api key>:<api secret>@<cloud name>. Cloudinary डैशबोर्ड से फिर से कॉपी करें।",
+      placeholder: "फ़ोटो अपलोड काम नहीं करेगा: CLOUDINARY_URL में असली API secret की जगह अभी भी नमूना टेक्स्ट है। Cloudinary डैशबोर्ड में secret दिखाकर पूरा CLOUDINARY_URL फिर से कॉपी करें, सर्वर सेटिंग्स (Vercel → Settings → Environment Variables) में बदलें और फिर से deploy करें।",
+      credentials: "फ़ोटो अपलोड काम नहीं करेगा: Cloudinary ने CLOUDINARY_URL की key, secret या cloud name को अस्वीकार कर दिया। Cloudinary डैशबोर्ड से secret दिखाकर पूरा API environment variable फिर से कॉपी करें, सर्वर सेटिंग्स (Vercel → Settings → Environment Variables) में बदलें और फिर से deploy करें।",
+      unreachable: "फ़ोटो अपलोड जाँचने के लिए अभी Cloudinary तक नहीं पहुँच पाए। एक मिनट बाद पेज रिफ़्रेश करें।",
+      other: "Cloudinary ने फ़ोटो अपलोड की सेटिंग्स स्वीकार नहीं कीं। सर्वर सेटिंग्स में CLOUDINARY_URL और सर्वर लॉग जाँचें।",
+    },
     fields: {
       gymName: "जिम का नाम",
       gymShort: "छोटा नाम",
