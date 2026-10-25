@@ -528,7 +528,7 @@ export function useKept(state: Result<unknown> | null) {
 // ───────────────────────────── photos ─────────────────────────────
 
 // Phone photos are 3–8 MB; a 1600px JPEG is a few hundred KB, which matters on mobile data.
-async function shrinkPhoto(file: File): Promise<Blob> {
+export async function shrinkPhoto(file: File): Promise<Blob> {
   try {
     const img = await createImageBitmap(file);
     const k = Math.min(1, 1600 / Math.max(img.width, img.height));

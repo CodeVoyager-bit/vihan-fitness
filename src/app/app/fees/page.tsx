@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CheckCircle2, Info, Wallet } from "lucide-react";
+import { CheckCircle2, Info, Paperclip, Wallet } from "lucide-react";
 import { ButtonLink, Card, EmptyState, PageHeader, SectionTitle, StatusBadge, cx } from "@/components/ui";
 import { claimReason, fmtDate, fmtMonth, fmtMonths, money } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
@@ -67,6 +67,12 @@ export default async function FeesPage() {
                   </p>
                   <StatusBadge status={c.status} label={t(`claimStatus.${c.status}`)} />
                 </div>
+                {c.proof && (
+                  <p className="mt-1 flex items-center gap-1 text-[13px] text-ink-500">
+                    <Paperclip className="size-3.5" aria-hidden />
+                    {t("fees.proofAttached")}
+                  </p>
+                )}
                 {c.reject_reason && <p className="mt-1 text-[14px] text-bad">{t("fees.rejectedReason", { reason: claimReason(c.reject_reason, t) })}</p>}
               </li>
             ))}

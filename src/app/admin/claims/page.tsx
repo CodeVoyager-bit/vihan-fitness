@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ReceiptText } from "lucide-react";
+import { ExternalLink, ReceiptText } from "lucide-react";
 import { ConfirmClaim, LinkClaim, RejectClaim } from "./actions-ui";
 import { Avatar, Card, EmptyState, PageHeader, SectionTitle, StatusBadge } from "@/components/ui";
-import { claimReason, fmtDate, fmtMonth, money, relDay } from "@/lib/format";
+import { claimReason, fmtDate, fmtMonth, money, photoUrl, relDay } from "@/lib/format";
 import { getT } from "@/lib/i18n/server";
 import { all } from "@/lib/db";
 import { sum } from "@/lib/ledger";
@@ -60,6 +60,16 @@ export default async function ClaimsPage() {
                       {c.reference && <span className="font-semibold"> · {c.reference}</span>}
                     </p>
                     {c.note && <p className="mt-1 text-[14px] italic text-ink-600">“{c.note}”</p>}
+                    {c.proof && (
+                      <a href={c.proof} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block rounded-[12px] focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-ink-900">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- Cloudinary already resizes and converts via the URL */}
+                        <img src={photoUrl(c.proof, "wide")} alt={t("claims.proof")} loading="lazy" className="max-h-56 w-auto rounded-[12px] border border-sand-200 bg-sand-100 object-contain" />
+                        <span className="mt-1 inline-flex min-h-8 items-center gap-1 text-[13px] font-semibold text-ink-700 underline underline-offset-2">
+                          <ExternalLink className="size-3.5" aria-hidden />
+                          {t("claims.viewProof")}
+                        </span>
+                      </a>
+                    )}
                     <p className="mt-1 text-[13px] text-ink-500">
                       {t("claims.submitted", { when: relDay(c.created_at, today, t) })} · {outstanding ? t("pay.owes", { amount: money(outstanding, lang) }) : t("pay.nothingOwed")}
                     </p>

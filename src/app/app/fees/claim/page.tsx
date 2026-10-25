@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui";
 import { getT } from "@/lib/i18n/server";
 import { balanceOf, feeFor } from "@/lib/ledger";
 import { requireMember } from "@/lib/session";
+import { photosEnabled } from "@/lib/photos";
 import { getRules, getSite } from "@/lib/site";
 import { UpiPay } from "@/components/member/upi-pay";
 import { currentMonth, todayIST } from "@/lib/time";
@@ -25,7 +26,7 @@ export default async function ClaimPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader title={t("claimForm.title")} sub={t("claimForm.sub")} back={{ href: "/app/fees", label: t("nav.fees") }} />
       {rules.upiId && bal.toPay > 0 && <UpiPay id={rules.upiId} name={rules.upiName || gym} rupees={bal.toPay / 100} note={`${gym} · ${me.name}`} />}
-      <ClaimForm today={todayIST()} suggested={suggested / 100} methods={rules.methods} />
+      <ClaimForm today={todayIST()} suggested={suggested / 100} methods={rules.methods} proofEnabled={photosEnabled()} />
     </div>
   );
 }

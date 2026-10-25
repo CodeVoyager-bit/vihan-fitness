@@ -835,3 +835,24 @@ describe("admin-editable site", async () => {
     }
   });
 });
+
+describe("UPI claim screenshots", () => {
+  test("a screenshot is kept on UPI claims only, and never changes the balance", async () => {
+    const id = await newMember(NOW);
+    const url = "https://res.cloudinary.com/demo/image/upload/v1/vihan/test/claims/m1-abc.jpg";
+    const upi = await L.submitClaim(id, { amount: FEE, paidOn: todayIST(), method: "upi", proof: url });
+    const cash = await L.submitClaim(id, { amount: 100, paidOn: todayIST(), method: "cash", proof: url });
+    const d = await db();
+    assert.equal((await d.claims.findOne({ _id: upi }))?.proof, url);
+    assert.equal((await d.claims.findOne({ _id: cash }))?.proof, null);
+    assert.equal((await bal(id)).outstanding, FEE);
+  });
+
+  test("a screenshot that isn't an image is refused before anything is sent to Cloudinary", async () => {
+    process.env.CLOUDINARY_URL = "cloudinary://key:secret@cloud";
+    await assert.rejects(P.uploadClaimProof(1, new File(["x"], "a.pdf", { type: "application/pdf" })), { code: "photoInvalid" });
+    await assert.rejects(P.uploadClaimProof(1, new File([], "empty.jpg", { type: "image/jpeg" })), { code: "photoInvalid" });
+    await assert.rejects(P.uploadClaimProof(1, null), { code: "photoInvalid" });
+    delete process.env.CLOUDINARY_URL;
+  });
+});

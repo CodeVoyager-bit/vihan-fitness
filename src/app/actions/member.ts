@@ -6,8 +6,8 @@ import { changePassword, rateLimit } from "@/lib/accounts";
 import { type Result, paise, run, str } from "@/lib/action";
 import { AppError, setting } from "@/lib/db";
 import * as E from "@/lib/engage";
-import { submitClaim, type Method } from "@/lib/ledger";
-import { setMemberPhoto } from "@/lib/photos";
+import { checkPaymentFields, submitClaim, type Method } from "@/lib/ledger";
+import { photosEnabled, removeClaimProof, setMemberPhoto, uploadClaimProof } from "@/lib/photos";
 import { setFollowupOptIn } from "@/lib/queries";
 import { requireMember, requireUser } from "@/lib/session";
 
@@ -36,7 +36,23 @@ export async function submitClaimAction(_: Result<{ amount: number }> | null, fd
   const me = await requireMember();
   return run(async () => {
     const amount = paise(fd, "amount");
-    await submitClaim(me.id, { amount, paidOn: str(fd, "paidOn"), method: str(fd, "method") as Method, reference: str(fd, "reference"), note: str(fd, "note") });
+    const c = { amount, paidOn: str(fd, "paidOn"), method: str(fd, "method") as Method, reference: str(fd, "reference"), note: str(fd, "note") };
+    // Optional UPI screenshot: uploaded only once the form is valid, and removed again if the claim isn't saved.
+    const file = fd.get("proof");
+    if (c.method !== "upi" || !photosEnabled() || !(file instanceof File) || !file.size) {
+      await submitClaim(me.id, c);
+    } else {
+      checkPaymentFields(c.amount, c.paidOn, c.method);
+      const proof = await uploadClaimProof(me.id, file).catch((e: unknown) => {
+        throw e instanceof AppError ? new AppError(e.code, "proof") : e; // shown under the screenshot field
+      });
+      try {
+        await submitClaim(me.id, { ...c, proof: proof.url });
+      } catch (e) {
+        await removeClaimProof(proof.name);
+        throw e;
+      }
+    }
     refresh();
     return { amount };
   }, fd);

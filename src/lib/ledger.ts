@@ -362,7 +362,7 @@ export type RecordPaymentInput = {
   actorId: number;
 };
 
-function checkPaymentFields(amount: number, paidOn: string, method: string) {
+export function checkPaymentFields(amount: number, paidOn: string, method: string) {
   if (!Number.isInteger(amount) || amount <= 0) throw new AppError("amountInvalid", "amount");
   if (amount > MAX_PAYMENT_PAISE) throw new AppError("amountTooLarge", "amount");
   if (!isDate(paidOn) || paidOn > todayIST() || paidOn < "2020-01-01") throw new AppError("dateInvalid", "paidOn");
@@ -575,7 +575,7 @@ async function dropUnusedFutureCharges(memberId: number): Promise<string[]> {
 
 // ───────────────────────────── claims ─────────────────────────────
 
-export async function submitClaim(memberId: number, c: { amount: number; paidOn: string; method: Method; reference?: string | null; note?: string | null }) {
+export async function submitClaim(memberId: number, c: { amount: number; paidOn: string; method: Method; reference?: string | null; note?: string | null; proof?: string | null }) {
   checkPaymentFields(c.amount, c.paidOn, c.method);
   return tx(async () => {
     await member(memberId);
@@ -596,6 +596,7 @@ export async function submitClaim(memberId: number, c: { amount: number; paidOn:
       reviewed_at: null,
       reject_reason: null,
       created_at: nowIso(),
+      proof: c.method === "upi" ? (c.proof ?? null) : null, // screenshots are for UPI payments only
     });
     await audit(memberId, "claim.submitted", { memberId, entity: "claim", entityId: id, detail: { amount: c.amount } });
     return id;

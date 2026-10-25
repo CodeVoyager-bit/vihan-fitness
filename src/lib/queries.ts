@@ -233,6 +233,7 @@ export type ClaimRow = {
   reject_reason: string | null;
   created_at: string;
   reviewed_at: string | null;
+  proof?: string | null;
 };
 
 export async function claims(status: "pending" | "reviewed", limit = 50): Promise<ClaimRow[]> {

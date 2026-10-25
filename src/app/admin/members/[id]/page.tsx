@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarCheck2, HandCoins, Hourglass, Phone, ReceiptText } from "lucide-react";
+import { CalendarCheck2, HandCoins, Hourglass, Paperclip, Phone, ReceiptText } from "lucide-react";
 import { AddChargeSheet, Checklist, FollowupToggle, ResetCodeSheet, ReversePaymentSheet, StatusSheet, UndoWaiverSheet, VisitSheet, WaiveSheet } from "./sheets";
 import { memberPhotoAction } from "@/app/actions/admin";
 import { ActivityList } from "@/components/admin/activity";
@@ -305,6 +305,12 @@ async function PaymentsTab({ id, t, lang }: { id: number; t: T; lang: Lang }) {
                   {fmtDate(c.paid_on, lang)}
                   {c.reference && ` · ${c.reference}`}
                 </p>
+                {c.proof && (
+                  <a href={c.proof} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 text-[14px] font-semibold text-ink-700 underline underline-offset-2">
+                    <Paperclip className="size-3.5" aria-hidden />
+                    {t("claims.proof")}
+                  </a>
+                )}
                 {c.reject_reason && <p className="mt-0.5 text-[14px] text-bad">“{claimReason(c.reject_reason, t)}”</p>}
               </div>
               <StatusBadge status={c.status} label={t(`claimStatus.${c.status}`)} />

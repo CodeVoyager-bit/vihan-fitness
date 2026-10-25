@@ -39,19 +39,38 @@ async function cloudinary(op: "upload" | "destroy", params: Record<string, strin
 
 const publicId = (name: string) => `vihan/${appMode()}/${name}`; // demo uploads never overwrite live ones
 
+// The browser shrinks photos to a ~1600px JPEG first; the cap is for anything that skipped that.
+function checkImage(file: FormDataEntryValue | null): asserts file is File {
+  if (!(file instanceof File) || !/^image\/(jpeg|png|webp|heic|heif)$/.test(file.type) || !file.size || file.size > MAX_PHOTO_BYTES)
+    throw new AppError("photoInvalid");
+}
+
 /** Uploads `file` as the photo, or deletes the photo when `file` is null. Returns the new URL or null. */
 async function replace(name: string, file: FormDataEntryValue | null): Promise<string | null> {
   if (!file) {
     await cloudinary("destroy", { public_id: publicId(name), invalidate: "true" });
     return null;
   }
-  // The browser shrinks photos to a ~1600px JPEG first; the cap is for anything that skipped that.
-  if (!(file instanceof File) || !/^image\/(jpeg|png|webp|heic|heif)$/.test(file.type) || !file.size || file.size > MAX_PHOTO_BYTES)
-    throw new AppError("photoInvalid");
+  checkImage(file);
   const r = await cloudinary("upload", { public_id: publicId(name), overwrite: "true" }, file);
   if (!r.secure_url) throw new AppError("photoFailed");
   return r.secure_url;
 }
+
+/**
+ * A UPI payment screenshot for a claim. The name is random, so the link can't be guessed from a
+ * member or claim number; only the admin's claim screens show it.
+ */
+export async function uploadClaimProof(memberId: number, file: FormDataEntryValue | null): Promise<{ url: string; name: string }> {
+  checkImage(file);
+  const name = `claims/m${memberId}-${crypto.randomBytes(12).toString("hex")}`;
+  const r = await cloudinary("upload", { public_id: publicId(name) }, file);
+  if (!r.secure_url) throw new AppError("photoFailed");
+  return { url: r.secure_url, name };
+}
+
+/** Best-effort removal of an upload whose claim never got saved. */
+export const removeClaimProof = (name: string) => cloudinary("destroy", { public_id: publicId(name), invalidate: "true" }).catch(() => {});
 
 export async function setMemberPhoto(memberId: number, file: FormDataEntryValue | null, actorId: number) {
   const d = await db();

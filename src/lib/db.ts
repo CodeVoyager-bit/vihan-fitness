@@ -105,6 +105,8 @@ export type ClaimDoc = {
   reviewed_at: string | null;
   reject_reason: string | null;
   created_at: string;
+  /** Screenshot the member attached to a UPI claim (Cloudinary URL); absent on older claims. */
+  proof?: string | null;
 };
 export type AttendanceDoc = { _id?: ObjectId; member_id: number; visit_date: string; recorded_at: string; source: "qr" | "app" | "admin"; created_by: number | null };
 export type GoalDoc = { _id?: ObjectId; member_id: number; month: string; target_visits: number };

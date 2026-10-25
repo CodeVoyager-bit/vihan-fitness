@@ -405,6 +405,8 @@ const en = {
   },
 
   claims: {
+    proof: "Payment screenshot",
+    viewProof: "Open full size",
     title: "Payment claims",
     sub: "Members who say they've paid. Nothing changes until you confirm.",
     empty: "No claims waiting.",
@@ -648,6 +650,7 @@ const en = {
   },
 
   fees: {
+    proofAttached: "Screenshot attached",
     upiPay: "Pay ₹{amount} via UPI",
     upiTo: "UPI ID: {id}",
     upiCopy: "Copy",
@@ -668,6 +671,11 @@ const en = {
   },
 
   claimForm: {
+    proof: "Payment screenshot",
+    proofHint: "A screenshot of the UPI payment helps {owner} find it quickly.",
+    proofAdd: "Attach screenshot",
+    proofRemove: "Remove",
+    proofAlt: "Your payment screenshot",
     title: "I have paid",
     sub: "Tell {owner} about a payment. Your balance updates once it's confirmed.",
     amount: "Amount paid",
